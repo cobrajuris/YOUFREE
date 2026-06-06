@@ -177,6 +177,28 @@ const ARTIST_CATALOG = [
   },
 ];
 
+
+/* ╔════════════════════════════════════════════════════════════╗
+   ║  TOP 10 – BOMBANDO NO YOUFREE                             ║
+   ╚════════════════════════════════════════════════════════════╝ */
+
+/**
+ * Top 10 músicas mais populares simuladas.
+ * Cada entrada tem título, artista, URL do YouTube e ID para preview.
+ */
+const TOP10_TRACKS = [
+  { rank: 1,  title: 'Blinding Lights',    artist: 'The Weeknd',       url: 'https://www.youtube.com/watch?v=4NRXx6U8ABQ', ytId: '4NRXx6U8ABQ', plays: '2.4M' },
+  { rank: 2,  title: 'Shape of You',       artist: 'Ed Sheeran',       url: 'https://www.youtube.com/watch?v=JGwWNGJdvx8', ytId: 'JGwWNGJdvx8', plays: '2.1M' },
+  { rank: 3,  title: 'Envolver',           artist: 'Anitta',           url: 'https://www.youtube.com/watch?v=SByXoS8ryb4', ytId: 'SByXoS8ryb4', plays: '1.9M' },
+  { rank: 4,  title: 'Anti-Hero',          artist: 'Taylor Swift',     url: 'https://www.youtube.com/watch?v=b1kbLwvqugk', ytId: 'b1kbLwvqugk', plays: '1.7M' },
+  { rank: 5,  title: 'Hear Me Now',        artist: 'Alok',             url: 'https://www.youtube.com/watch?v=2MFGqoKd578', ytId: '2MFGqoKd578', plays: '1.5M' },
+  { rank: 6,  title: 'Yellow',             artist: 'Coldplay',         url: 'https://www.youtube.com/watch?v=yKNxeF4KMsY', ytId: 'yKNxeF4KMsY', plays: '1.3M' },
+  { rank: 7,  title: 'Perfect',            artist: 'Ed Sheeran',       url: 'https://www.youtube.com/watch?v=2Vv-BfVoq4g', ytId: '2Vv-BfVoq4g', plays: '1.2M' },
+  { rank: 8,  title: 'Viva la Vida',       artist: 'Coldplay',         url: 'https://www.youtube.com/watch?v=dvgZkm1xWPE', ytId: 'dvgZkm1xWPE', plays: '1.1M' },
+  { rank: 9,  title: 'Girl From Rio',      artist: 'Anitta',           url: 'https://www.youtube.com/watch?v=MlxpGEBqLCU', ytId: 'MlxpGEBqLCU', plays: '980K' },
+  { rank: 10, title: 'Shake It Off',       artist: 'Taylor Swift',     url: 'https://www.youtube.com/watch?v=nfWlot6h_JM', ytId: 'nfWlot6h_JM', plays: '920K' },
+];
+
 /* ╔════════════════════════════════════════════════════════════╗
    ║  2. ESTADO GLOBAL DA APLICAÇÃO                            ║
    ╚════════════════════════════════════════════════════════════╝ */
@@ -666,6 +688,7 @@ function renderHomePage() {
   updateGreeting();
   renderAlbums('albumGrid', getHourlyGroup(ALBUM_BANK));
   renderArtists('artistsGrid', getHourlyGroup(ARTIST_BANK));
+  renderTop10(); // 🔥 Top 10 Bombando no YouFree
 }
 
 /** Renderiza grid horizontal de álbuns */
@@ -1148,50 +1171,7 @@ function searchArtist() {
 /**
  * Gera o HTML do card de um artista com sua lista de músicas.
  */
-function renderArtistCard(artist) {
-  const songs = artist.songs.map((song, i) => {
-    const safeUrl = encodeURIComponent(song.url);
-    const safeTitle = encodeURIComponent(song.title);
-    return `
-      <li class="artist-song-item" data-url="${safeUrl}" data-title="${safeTitle}" onclick="handleSongClick(this)">
-        <span class="song-index">${String(i + 1).padStart(2, '0')}</span>
-        <span class="song-title">${song.title}</span>
-        <button class="btn-copy-link" onclick="event.stopPropagation();handleSongClick(this.parentElement)" aria-label="Copiar link">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.7"/></svg>
-          Copiar Link
-        </button>
-      </li>
-    `;
-  }).join('');
 
-  return `
-    <div class="artist-catalog-card">
-      <div class="artist-catalog-header">
-        <div class="artist-catalog-photo-wrap">
-          <img
-            src="${artist.photo}"
-            alt="${artist.name}"
-            class="artist-catalog-photo"
-            onerror="this.src='https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=400&h=400&fit=crop'"
-          />
-          <div class="artist-catalog-overlay">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="32" height="32"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
-          </div>
-        </div>
-        <div class="artist-catalog-info">
-          <h2 class="artist-catalog-name">${artist.name}</h2>
-          <span class="artist-catalog-genre">${artist.genre}</span>
-          <p class="artist-catalog-hint">Clique em uma música para copiar o link e preencher o downloader automaticamente.</p>
-        </div>
-      </div>
-      <ol class="artist-song-list">${songs}</ol>
-    </div>
-  `;
-}
-/**
- * Handles clicking on a song row or its Copiar Link button.
- * Reads the encoded URL and title from data attributes.
- */
 function handleSongClick(el) {
   const url = decodeURIComponent(el.dataset.url || '');
   const title = decodeURIComponent(el.dataset.title || '');
@@ -1268,3 +1248,347 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
+
+
+/* ══════════════════════════════════════════════════════════════
+   🔥 TOP 10 – RENDERIZAÇÃO
+   ══════════════════════════════════════════════════════════════ */
+
+/**
+ * Renderiza a lista Top 10 no elemento #top10List.
+ * Chamado no boot do app (renderHomePage).
+ */
+function renderTop10() {
+  const container = document.getElementById('top10List');
+  if (!container) return;
+
+  container.innerHTML = TOP10_TRACKS.map(track => {
+    const rankClass = track.rank <= 3 ? 'top3' : '';
+    return `
+      <li class="top10-item ${rankClass}" data-url="${encodeURIComponent(track.url)}" data-ytid="${track.ytId}" data-title="${encodeURIComponent(track.title)}" data-artist="${encodeURIComponent(track.artist)}">
+        <span class="top10-rank">${track.rank <= 3 ? ['🥇','🥈','🥉'][track.rank-1] : track.rank}</span>
+        <div class="top10-info">
+          <span class="top10-title">${track.title}</span>
+          <span class="top10-artist">${track.artist}</span>
+        </div>
+        <span class="top10-plays">${track.plays}</span>
+        <div class="top10-actions">
+          <button class="top10-btn-play" onclick="event.stopPropagation();miniPlayerOpen(decodeURIComponent(this.closest('[data-ytid]').dataset.ytid), decodeURIComponent(this.closest('[data-title]').dataset.title), decodeURIComponent(this.closest('[data-artist]').dataset.artist), decodeURIComponent(this.closest('[data-url]').dataset.url))" aria-label="Preview de ${track.title}">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M8 5v14l11-7z"/></svg>
+          </button>
+          <button class="top10-btn-copy" onclick="event.stopPropagation();handleSongClick(this.closest('.top10-item'))" aria-label="Copiar link de ${track.title}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.7"/></svg>
+            Copiar
+          </button>
+        </div>
+      </li>
+    `;
+  }).join('');
+
+  // Add click handler for the whole row
+  container.querySelectorAll('.top10-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const url = decodeURIComponent(item.dataset.url);
+      const title = decodeURIComponent(item.dataset.title);
+      const artist = decodeURIComponent(item.dataset.artist);
+      const ytId = item.dataset.ytid;
+      copyAndFillLink(url, title, item);
+      miniPlayerOpen(ytId, title, artist, url);
+    });
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════
+   🎵 MINI PLAYER – LÓGICA COMPLETA
+   ══════════════════════════════════════════════════════════════ */
+
+/** Estado interno do Mini Player */
+const MiniPlayer = {
+  queue: [],        // Array de {ytId, title, artist, url}
+  currentIdx: 0,
+  isPlaying: false,
+  progressTimer: null,
+  elapsed: 0,
+  duration: 210,    // 3:30 default (preview simulado)
+};
+
+/**
+ * Abre o mini-player com a faixa especificada.
+ * @param {string} ytId   - ID do vídeo YouTube
+ * @param {string} title  - Título da música
+ * @param {string} artist - Nome do artista
+ * @param {string} url    - URL completa do YouTube
+ */
+function miniPlayerOpen(ytId, title, artist, url) {
+  // Adiciona à fila se não estiver
+  const existingIdx = MiniPlayer.queue.findIndex(t => t.ytId === ytId);
+  if (existingIdx >= 0) {
+    MiniPlayer.currentIdx = existingIdx;
+  } else {
+    MiniPlayer.queue.push({ ytId, title, artist, url });
+    MiniPlayer.currentIdx = MiniPlayer.queue.length - 1;
+  }
+
+  const player = document.getElementById('miniPlayer');
+  if (player) {
+    player.classList.remove('hidden');
+    player.classList.add('mini-player--visible');
+  }
+
+  _miniPlayerLoadTrack(MiniPlayer.currentIdx);
+}
+
+/** Carrega a faixa no índice especificado */
+function _miniPlayerLoadTrack(idx) {
+  if (idx < 0 || idx >= MiniPlayer.queue.length) return;
+  MiniPlayer.currentIdx = idx;
+
+  const track = MiniPlayer.queue[idx];
+
+  // Atualiza UI
+  const titleEl = document.getElementById('miniPlayerTitle');
+  const artistEl = document.getElementById('miniPlayerArtist');
+  if (titleEl) titleEl.textContent = track.title;
+  if (artistEl) artistEl.textContent = track.artist;
+
+  // Reset progresso
+  MiniPlayer.elapsed = 0;
+  _miniPlayerUpdateProgress();
+
+  // Carrega YouTube iframe (embed com autoplay, muted=0, start=0)
+  const iframe = document.getElementById('ytPreviewFrame');
+  if (iframe) {
+    // Usa embed com autoplay e sem controles visíveis
+    iframe.src = `https://www.youtube-nocookie.com/embed/${track.ytId}?autoplay=1&controls=0&modestbranding=1&rel=0&iv_load_policy=3&enablejsapi=0`;
+  }
+
+  MiniPlayer.isPlaying = true;
+  _miniPlayerSetPlayState(true);
+  _miniPlayerStartTimer();
+}
+
+/** Inicia o timer de progresso simulado */
+function _miniPlayerStartTimer() {
+  if (MiniPlayer.progressTimer) clearInterval(MiniPlayer.progressTimer);
+  MiniPlayer.progressTimer = setInterval(() => {
+    if (!MiniPlayer.isPlaying) return;
+    MiniPlayer.elapsed++;
+    if (MiniPlayer.elapsed >= MiniPlayer.duration) {
+      MiniPlayer.elapsed = 0;
+      miniPlayerNext();
+      return;
+    }
+    _miniPlayerUpdateProgress();
+  }, 1000);
+}
+
+/** Atualiza a barra de progresso e o tempo */
+function _miniPlayerUpdateProgress() {
+  const fill = document.getElementById('mpProgressFill');
+  const currentTimeEl = document.getElementById('mpCurrentTime');
+  const durationEl = document.getElementById('mpDuration');
+
+  const pct = Math.min((MiniPlayer.elapsed / MiniPlayer.duration) * 100, 100);
+  if (fill) fill.style.width = pct + '%';
+
+  const fmt = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  if (currentTimeEl) currentTimeEl.textContent = fmt(MiniPlayer.elapsed);
+  if (durationEl) durationEl.textContent = fmt(MiniPlayer.duration);
+}
+
+/** Alterna play/pause */
+function miniPlayerToggle() {
+  MiniPlayer.isPlaying = !MiniPlayer.isPlaying;
+  _miniPlayerSetPlayState(MiniPlayer.isPlaying);
+
+  const iframe = document.getElementById('ytPreviewFrame');
+  if (iframe) {
+    if (!MiniPlayer.isPlaying) {
+      // Pausa: remove src temporariamente
+      iframe.dataset.lastSrc = iframe.src;
+      iframe.src = '';
+    } else {
+      // Retoma
+      iframe.src = iframe.dataset.lastSrc || iframe.src;
+    }
+  }
+}
+
+/** Atualiza ícones play/pause */
+function _miniPlayerSetPlayState(playing) {
+  const playIcon = document.getElementById('mpPlayIcon');
+  const pauseIcon = document.getElementById('mpPauseIcon');
+  if (playIcon) playIcon.style.display = playing ? 'none' : 'block';
+  if (pauseIcon) pauseIcon.style.display = playing ? 'block' : 'none';
+}
+
+/** Vai para a próxima faixa */
+function miniPlayerNext() {
+  if (MiniPlayer.queue.length === 0) return;
+  const nextIdx = (MiniPlayer.currentIdx + 1) % MiniPlayer.queue.length;
+  _miniPlayerLoadTrack(nextIdx);
+}
+
+/** Vai para a faixa anterior */
+function miniPlayerPrev() {
+  if (MiniPlayer.queue.length === 0) return;
+  const prevIdx = (MiniPlayer.currentIdx - 1 + MiniPlayer.queue.length) % MiniPlayer.queue.length;
+  _miniPlayerLoadTrack(prevIdx);
+}
+
+/** Copia o link da faixa atual para o clipboard e preenche o campo */
+function miniPlayerCopyLink() {
+  if (MiniPlayer.queue.length === 0) return;
+  const track = MiniPlayer.queue[MiniPlayer.currentIdx];
+  copyAndFillLink(track.url, track.title, null);
+}
+
+/** Fecha o mini player */
+function miniPlayerClose() {
+  if (MiniPlayer.progressTimer) clearInterval(MiniPlayer.progressTimer);
+  MiniPlayer.isPlaying = false;
+  MiniPlayer.queue = [];
+  MiniPlayer.currentIdx = 0;
+
+  const iframe = document.getElementById('ytPreviewFrame');
+  if (iframe) iframe.src = '';
+
+  const player = document.getElementById('miniPlayer');
+  if (player) {
+    player.classList.remove('mini-player--visible');
+    setTimeout(() => player.classList.add('hidden'), 400);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   🎵 BOTÃO PLAY NAS LISTAS DE MÚSICAS (artistas + top10)
+   ══════════════════════════════════════════════════════════════ */
+
+/**
+ * Override de renderArtistCard para incluir botão play em cada música.
+ * Substitui a função renderArtistCard anterior com botão de play.
+ */
+function renderArtistCard(artist) {
+  const songs = artist.songs.map((song, i) => {
+    const safeUrl = encodeURIComponent(song.url);
+    const safeTitle = encodeURIComponent(song.title);
+    const safeArtist = encodeURIComponent(artist.name);
+    // Extrai o ytId da URL do YouTube
+    const ytId = song.url.split('v=')[1] || song.url.split('/').pop() || '';
+    return `
+      <li class="artist-song-item" data-url="${safeUrl}" data-title="${safeTitle}" data-artist="${safeArtist}" data-ytid="${ytId}" onclick="handleSongClick(this)">
+        <span class="song-index">${String(i + 1).padStart(2, '0')}</span>
+        <button class="song-play-btn" onclick="event.stopPropagation();miniPlayerOpen('${ytId}', decodeURIComponent('${safeTitle}'), decodeURIComponent('${safeArtist}'), decodeURIComponent('${safeUrl}'))" aria-label="Preview de ${song.title}">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+        <span class="song-title">${song.title}</span>
+        <button class="btn-copy-link" onclick="event.stopPropagation();handleSongClick(this.parentElement)" aria-label="Copiar link">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.7"/></svg>
+          Copiar Link
+        </button>
+      </li>
+    `;
+  }).join('');
+
+  return `
+    <div class="artist-catalog-card">
+      <div class="artist-catalog-header">
+        <div class="artist-catalog-photo-wrap">
+          <img src="${artist.photo}" alt="${artist.name}" class="artist-catalog-photo"
+            onerror="this.src='https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=400&h=400&fit=crop'" />
+          <div class="artist-catalog-overlay">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="32" height="32"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
+          </div>
+        </div>
+        <div class="artist-catalog-info">
+          <h2 class="artist-catalog-name">${artist.name}</h2>
+          <span class="artist-catalog-genre">${artist.genre}</span>
+          <p class="artist-catalog-hint">▶ Play para prévia · 🔗 Copiar para baixar</p>
+        </div>
+      </div>
+      <ol class="artist-song-list">${songs}</ol>
+    </div>
+  `;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   📲 PWA – INSTALAÇÃO E SERVICE WORKER
+   ══════════════════════════════════════════════════════════════ */
+
+let _pwaInstallPrompt = null;
+
+/** Registra o Service Worker */
+function registerServiceWorker() {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/YOUFREE/sw.js', { scope: '/YOUFREE/' })
+      .then(reg => {
+        console.log('[YouFree] Service Worker registrado:', reg.scope);
+      })
+      .catch(err => console.warn('[YouFree] SW falhou:', err));
+  }
+}
+
+/** Captura o evento beforeinstallprompt para mostrar o banner customizado */
+function initPWAInstall() {
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    _pwaInstallPrompt = e;
+
+    // Mostra o banner de instalação após 3 segundos
+    const dismissed = sessionStorage.getItem('yf_pwa_dismissed');
+    if (!dismissed) {
+      setTimeout(() => {
+        const banner = document.getElementById('pwaInstallBanner');
+        if (banner) banner.classList.remove('hidden');
+      }, 3000);
+    }
+  });
+
+  // Quando instalado com sucesso
+  window.addEventListener('appinstalled', () => {
+    console.log('[YouFree] App instalado com sucesso!');
+    pwaDismiss();
+    showToast('YouFree instalado! Acesse pela tela inicial. 🎵');
+  });
+}
+
+/** Dispara o prompt de instalação nativo */
+function pwaInstall() {
+  if (_pwaInstallPrompt) {
+    _pwaInstallPrompt.prompt();
+    _pwaInstallPrompt.userChoice.then(choice => {
+      if (choice.outcome === 'accepted') {
+        console.log('[YouFree] Usuário aceitou a instalação');
+      }
+      _pwaInstallPrompt = null;
+      pwaDismiss();
+    });
+  }
+}
+
+/** Fecha o banner de instalação */
+function pwaDismiss() {
+  const banner = document.getElementById('pwaInstallBanner');
+  if (banner) {
+    banner.classList.add('pwa-banner--hiding');
+    setTimeout(() => banner.classList.add('hidden'), 400);
+  }
+  sessionStorage.setItem('yf_pwa_dismissed', '1');
+}
+
+/* ══════════════════════════════════════════════════════════════
+   INTEGRAÇÃO: INIT EXTENSIONS (chamado no bootApp)
+   ══════════════════════════════════════════════════════════════ */
+
+/** Patch no bootApp para inicializar os novos módulos */
+const _originalBootApp = window.bootApp;
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Registra SW
+  registerServiceWorker();
+  // Inicia listener PWA
+  initPWAInstall();
+});
+
+/** Patch no renderHomePage para incluir o Top 10 */
+const _origRenderHomePage = window.renderHomePage;
