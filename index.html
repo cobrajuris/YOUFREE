@@ -10,6 +10,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap" rel="stylesheet" />
+  <!-- PWA Meta Tags -->
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#1A56DB" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="YouFree" />
+  <meta name="msapplication-TileColor" content="#1A56DB" />
 </head>
 <body>
 
@@ -206,6 +214,20 @@
         <!-- Seção de resultados do catálogo do artista -->
         <section id="artistCatalogSection" class="artist-catalog-section hidden"></section>
 
+        <!-- ═══════════════════════════════════════════════
+             🔥 TOP 10 BOMBANDO NO YOUFREE
+             ═══════════════════════════════════════════════ -->
+        <section class="content-section trending-section">
+          <div class="section-header">
+            <h2 class="trending-title">🔥 Bombando no YouFree</h2>
+            <span class="trending-badge">Top 10 Mais Baixados</span>
+          </div>
+          <ol class="top10-list" id="top10List">
+            <!-- Preenchido pelo script.js -->
+          </ol>
+        </section>
+
+
 
         <!-- Sugestões de álbuns — rotacionam a cada hora -->
         <section class="content-section">
@@ -381,6 +403,87 @@
 
   <!-- Toast de notificação -->
   <div id="toast" class="toast" role="alert" aria-live="polite"></div>
+
+
+  <!-- ═══════════════════════════════════════════════════
+       🎵 MINI PLAYER FLUTUANTE (estilo Spotify)
+       ═══════════════════════════════════════════════════ -->
+  <div id="miniPlayer" class="mini-player hidden" role="region" aria-label="Mini Player de Prévia">
+    <div class="mini-player-track">
+      <div class="mini-player-art" id="miniPlayerArt">
+        <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="40" height="40" rx="8" fill="#1A56DB"/>
+          <polygon points="13,10 13,30 31,20" fill="white" opacity="0.9"/>
+        </svg>
+      </div>
+      <div class="mini-player-info">
+        <p class="mini-player-title" id="miniPlayerTitle">Selecione uma faixa</p>
+        <p class="mini-player-artist" id="miniPlayerArtist">—</p>
+      </div>
+    </div>
+    <div class="mini-player-center">
+      <div class="mini-player-controls">
+        <button class="mp-btn" onclick="miniPlayerPrev()" aria-label="Faixa anterior">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+        </button>
+        <button class="mp-btn mp-play-btn" id="mpPlayBtn" onclick="miniPlayerToggle()" aria-label="Play/Pause">
+          <svg id="mpPlayIcon" viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M8 5v14l11-7z"/></svg>
+          <svg id="mpPauseIcon" viewBox="0 0 24 24" fill="currentColor" width="22" height="22" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+        </button>
+        <button class="mp-btn" onclick="miniPlayerNext()" aria-label="Próxima faixa">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+        </button>
+      </div>
+      <div class="mp-progress-wrap">
+        <span class="mp-time" id="mpCurrentTime">0:00</span>
+        <div class="mp-progress-bar" onclick="miniPlayerSeek(event)">
+          <div class="mp-progress-fill" id="mpProgressFill" style="width:0%"></div>
+        </div>
+        <span class="mp-time" id="mpDuration">0:00</span>
+      </div>
+    </div>
+    <div class="mini-player-actions">
+      <button class="mp-btn mp-copy-btn" onclick="miniPlayerCopyLink()" aria-label="Copiar link para baixar" title="Copiar link para baixar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+          <path d="M12 2v12M8 10l4 4 4-4"/><rect x="3" y="16" width="18" height="6" rx="2"/>
+        </svg>
+      </button>
+      <button class="mp-btn mp-close-btn" onclick="miniPlayerClose()" aria-label="Fechar player">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+    <!-- YouTube iframe invisível para áudio de prévia -->
+    <iframe id="ytPreviewFrame" src="" width="0" height="0" frameborder="0"
+      allow="autoplay; encrypted-media" allowfullscreen
+      style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;left:-9999px;"
+      title="Preview YouTube"></iframe>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════
+       📲 BANNER DE INSTALAÇÃO PWA
+       ═══════════════════════════════════════════════════ -->
+  <div id="pwaInstallBanner" class="pwa-install-banner hidden" role="complementary">
+    <div class="pwa-banner-inner">
+      <svg class="pwa-icon-svg" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+        <rect width="48" height="48" rx="10" fill="#1A56DB"/>
+        <polygon points="8,8 8,40 42,24" fill="#E02020" opacity="0.15"/>
+        <polygon points="12,12 12,36 34,24" fill="#E02020" opacity="0.88"/>
+        <line x1="28" y1="10" x2="28" y2="32" stroke="white" stroke-width="3" stroke-linecap="round"/>
+        <line x1="28" y1="10" x2="40" y2="14" stroke="white" stroke-width="3" stroke-linecap="round"/>
+        <ellipse cx="23" cy="33" rx="6" ry="4" fill="white" transform="rotate(-15 23 33)"/>
+      </svg>
+      <div class="pwa-banner-text">
+        <strong>Instalar YouFree</strong>
+        <span>Adicione à tela inicial &amp; use sem internet!</span>
+      </div>
+      <div class="pwa-banner-btns">
+        <button class="btn-primary btn-sm" id="pwaInstallBtn" onclick="pwaInstall()">Instalar App</button>
+        <button class="btn-ghost btn-sm pwa-dismiss" onclick="pwaDismiss()">Depois</button>
+      </div>
+    </div>
+  </div>
 
   <script src="script.js"></script>
 </body>
