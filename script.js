@@ -1191,7 +1191,7 @@ function renderArtistCard(artist) {
  */
 function copyAndFillLink(url, title, el) {
   // Preenche o campo de download principal
-  const urlInput = document.getElementById('urlInput');
+  const urlInput = document.getElementById('homeUrlInput');
   if (urlInput) {
     urlInput.value = url;
     urlInput.dispatchEvent(new Event('input'));
