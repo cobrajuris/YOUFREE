@@ -107,6 +107,77 @@ const MOCK_VIDEOS = [
 ];
 
 /* ╔════════════════════════════════════════════════════════════╗
+   ║  CATÁLOGO DE ARTISTAS – Busca Rápida por Artista          ║
+   ╚════════════════════════════════════════════════════════════╝ */
+
+/**
+ * Banco de dados simulado de artistas com suas top 5 músicas.
+ * Cada música tem um link real/demonstrativo do YouTube.
+ */
+const ARTIST_CATALOG = [
+  {
+    name: 'Coldplay',
+    genre: 'Alternative Rock / Pop',
+    photo: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=400&h=400&fit=crop',
+    songs: [
+      { title: 'The Scientist', url: 'https://www.youtube.com/watch?v=RB-RcX5DS5A' },
+      { title: 'Yellow', url: 'https://www.youtube.com/watch?v=yKNxeF4KMsY' },
+      { title: 'Fix You', url: 'https://www.youtube.com/watch?v=k4V3Mo61fJM' },
+      { title: 'A Sky Full of Stars', url: 'https://www.youtube.com/watch?v=VPRjCeoBqrI' },
+      { title: 'Viva la Vida', url: 'https://www.youtube.com/watch?v=dvgZkm1xWPE' },
+    ],
+  },
+  {
+    name: 'Ed Sheeran',
+    genre: 'Pop / Folk',
+    photo: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400&h=400&fit=crop',
+    songs: [
+      { title: 'Shape of You', url: 'https://www.youtube.com/watch?v=JGwWNGJdvx8' },
+      { title: 'Perfect', url: 'https://www.youtube.com/watch?v=2Vv-BfVoq4g' },
+      { title: 'Thinking Out Loud', url: 'https://www.youtube.com/watch?v=lp-EO5I60KA' },
+      { title: 'Photograph', url: 'https://www.youtube.com/watch?v=nSDgHBxUbVQ' },
+      { title: 'Bad Habits', url: 'https://www.youtube.com/watch?v=orJSJGHjBLI' },
+    ],
+  },
+  {
+    name: 'Taylor Swift',
+    genre: 'Pop / Country',
+    photo: 'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=400&h=400&fit=crop',
+    songs: [
+      { title: 'Anti-Hero', url: 'https://www.youtube.com/watch?v=b1kbLwvqugk' },
+      { title: 'Shake It Off', url: 'https://www.youtube.com/watch?v=nfWlot6h_JM' },
+      { title: 'Blank Space', url: 'https://www.youtube.com/watch?v=e-ORhEE9VVg' },
+      { title: 'Love Story', url: 'https://www.youtube.com/watch?v=8xg3vE8Ie_E' },
+      { title: 'cardigan', url: 'https://www.youtube.com/watch?v=K-a8s8OLBSE' },
+    ],
+  },
+  {
+    name: 'Anitta',
+    genre: 'Pop / Funk / Reggaeton',
+    photo: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&h=400&fit=crop',
+    songs: [
+      { title: 'Envolver', url: 'https://www.youtube.com/watch?v=SByXoS8ryb4' },
+      { title: 'Girl From Rio', url: 'https://www.youtube.com/watch?v=MlxpGEBqLCU' },
+      { title: 'Funk Rave', url: 'https://www.youtube.com/watch?v=sn7H9CRsqfM' },
+      { title: 'Paradinha', url: 'https://www.youtube.com/watch?v=mXnJiYSIv8c' },
+      { title: 'Vai Malandra', url: 'https://www.youtube.com/watch?v=gpuNTdHayqo' },
+    ],
+  },
+  {
+    name: 'Alok',
+    genre: 'Electronic / House',
+    photo: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&h=400&fit=crop',
+    songs: [
+      { title: 'Hear Me Now', url: 'https://www.youtube.com/watch?v=2MFGqoKd578' },
+      { title: 'Never Let Me Go', url: 'https://www.youtube.com/watch?v=Gb_8Ej7Gg5c' },
+      { title: 'In My Arms', url: 'https://www.youtube.com/watch?v=8K-YjTVFo4A' },
+      { title: 'Don\'t Say Goodbye', url: 'https://www.youtube.com/watch?v=1gJ6MJOIBAQ' },
+      { title: 'Big Jet Plane', url: 'https://www.youtube.com/watch?v=J0Cb4xGhFzI' },
+    ],
+  },
+];
+
+/* ╔════════════════════════════════════════════════════════════╗
    ║  2. ESTADO GLOBAL DA APLICAÇÃO                            ║
    ╚════════════════════════════════════════════════════════════╝ */
 
@@ -1032,5 +1103,158 @@ document.addEventListener('keydown', (e) => {
     if (document.activeElement?.id === 'homeUrlInput')       processFromHome();
     if (document.activeElement?.id === 'loginPass')          handleLogin();
     if (document.activeElement?.id === 'regPass')            handleRegister();
+  }
+});
+
+
+/* ╔════════════════════════════════════════════════════════════╗
+   ║  BUSCA POR ARTISTA – Catálogo e Integração Downloader     ║
+   ╚════════════════════════════════════════════════════════════╝ */
+
+/**
+ * Busca um artista no ARTIST_CATALOG pelo nome (case-insensitive, parcial).
+ * Exibe os resultados na seção #artistCatalogSection.
+ */
+function searchArtist() {
+  const query = (document.getElementById('artistSearchInput') || {}).value || '';
+  const term = query.trim().toLowerCase();
+  const section = document.getElementById('artistCatalogSection');
+  if (!section) return;
+
+  if (!term) {
+    section.innerHTML = '';
+    section.classList.add('hidden');
+    return;
+  }
+
+  const found = ARTIST_CATALOG.filter(a => a.name.toLowerCase().includes(term));
+
+  if (found.length === 0) {
+    section.innerHTML = `
+      <div class="artist-not-found">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <p>Nenhum artista encontrado para "<strong>${query}</strong>".</p>
+        <span>Tente: Coldplay, Ed Sheeran, Taylor Swift, Anitta, Alok</span>
+      </div>`;
+    section.classList.remove('hidden');
+    return;
+  }
+
+  section.innerHTML = found.map(artist => renderArtistCard(artist)).join('');
+  section.classList.remove('hidden');
+  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/**
+ * Gera o HTML do card de um artista com sua lista de músicas.
+ */
+function renderArtistCard(artist) {
+  const songs = artist.songs.map((song, i) => `
+    <li class="artist-song-item" onclick="copyAndFillLink('${song.url}', '${song.title.replace(/'/g, "\\'")}', this)">
+      <span class="song-index">${String(i + 1).padStart(2, '0')}</span>
+      <span class="song-title">${song.title}</span>
+      <button class="btn-copy-link" aria-label="Copiar link do YouTube de ${song.title}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.7"/></svg>
+        Copiar Link
+      </button>
+    </li>
+  `).join('');
+
+  return `
+    <div class="artist-catalog-card">
+      <div class="artist-catalog-header">
+        <div class="artist-catalog-photo-wrap">
+          <img
+            src="${artist.photo}"
+            alt="${artist.name}"
+            class="artist-catalog-photo"
+            onerror="this.src='https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=400&h=400&fit=crop'"
+          />
+          <div class="artist-catalog-overlay">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="32" height="32"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
+          </div>
+        </div>
+        <div class="artist-catalog-info">
+          <h2 class="artist-catalog-name">${artist.name}</h2>
+          <span class="artist-catalog-genre">${artist.genre}</span>
+          <p class="artist-catalog-hint">Clique em uma música para copiar o link e preencher o downloader automaticamente.</p>
+        </div>
+      </div>
+      <ol class="artist-song-list">${songs}</ol>
+    </div>
+  `;
+}
+
+/**
+ * Copia o link do YouTube para a área de transferência
+ * e preenche o campo principal de download.
+ */
+function copyAndFillLink(url, title, el) {
+  // Preenche o campo de download principal
+  const urlInput = document.getElementById('urlInput');
+  if (urlInput) {
+    urlInput.value = url;
+    urlInput.dispatchEvent(new Event('input'));
+    urlInput.focus();
+  }
+
+  // Copia para clipboard
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(() => showCopyToast(title, el)).catch(() => fallbackCopy(url, title, el));
+  } else {
+    fallbackCopy(url, title, el);
+  }
+}
+
+function fallbackCopy(url, title, el) {
+  const ta = document.createElement('textarea');
+  ta.value = url;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try { document.execCommand('copy'); } catch(e) {}
+  document.body.removeChild(ta);
+  showCopyToast(title, el);
+}
+
+function showCopyToast(title, el) {
+  // Remove existing toasts
+  document.querySelectorAll('.copy-toast').forEach(t => t.remove());
+
+  const toast = document.createElement('div');
+  toast.className = 'copy-toast';
+  toast.innerHTML = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="18" height="18">
+      <polyline points="20 6 9 17 4 12"/>
+    </svg>
+    <span>Link copiado! Cole acima para baixar.</span>
+  `;
+  document.body.appendChild(toast);
+
+  // Highlight the clicked row
+  if (el) {
+    const row = el.closest ? el.closest('.artist-song-item') : el;
+    if (row) {
+      row.classList.add('song-copied');
+      setTimeout(() => row.classList.remove('song-copied'), 2000);
+    }
+  }
+
+  requestAnimationFrame(() => toast.classList.add('copy-toast--visible'));
+  setTimeout(() => {
+    toast.classList.remove('copy-toast--visible');
+    setTimeout(() => toast.remove(), 400);
+  }, 3000);
+}
+
+// Allow pressing Enter in the artist search field
+document.addEventListener('DOMContentLoaded', () => {
+  const input = document.getElementById('artistSearchInput');
+  if (input) {
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') searchArtist();
+    });
   }
 });
