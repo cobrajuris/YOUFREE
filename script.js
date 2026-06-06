@@ -1149,16 +1149,20 @@ function searchArtist() {
  * Gera o HTML do card de um artista com sua lista de músicas.
  */
 function renderArtistCard(artist) {
-  const songs = artist.songs.map((song, i) => `
-    <li class="artist-song-item" onclick="copyAndFillLink('${song.url}', '${song.title.replace(/'/g, "\\'")}', this)">
-      <span class="song-index">${String(i + 1).padStart(2, '0')}</span>
-      <span class="song-title">${song.title}</span>
-      <button class="btn-copy-link" onclick="event.stopPropagation();copyAndFillLink('${song.url}','${song.title.replace(/'/g,\"\\\\'\")}',this.parentElement)" aria-label="Copiar link do YouTube de ${song.title}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.7"/></svg>
-        Copiar Link
-      </button>
-    </li>
-  `).join('');
+  const songs = artist.songs.map((song, i) => {
+    const safeUrl = encodeURIComponent(song.url);
+    const safeTitle = encodeURIComponent(song.title);
+    return `
+      <li class="artist-song-item" data-url="${safeUrl}" data-title="${safeTitle}" onclick="handleSongClick(this)">
+        <span class="song-index">${String(i + 1).padStart(2, '0')}</span>
+        <span class="song-title">${song.title}</span>
+        <button class="btn-copy-link" onclick="event.stopPropagation();handleSongClick(this.parentElement)" aria-label="Copiar link">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.7"/></svg>
+          Copiar Link
+        </button>
+      </li>
+    `;
+  }).join('');
 
   return `
     <div class="artist-catalog-card">
@@ -1184,13 +1188,19 @@ function renderArtistCard(artist) {
     </div>
   `;
 }
-
 /**
- * Copia o link do YouTube para a área de transferência
- * e preenche o campo principal de download.
+ * Handles clicking on a song row or its Copiar Link button.
+ * Reads the encoded URL and title from data attributes.
  */
+function handleSongClick(el) {
+  const url = decodeURIComponent(el.dataset.url || '');
+  const title = decodeURIComponent(el.dataset.title || '');
+  if (url) copyAndFillLink(url, title, el);
+}
+
+
 function copyAndFillLink(url, title, el) {
-  // Preenche o campo de download principal
+  // Preenche o campo de download principal na home
   const urlInput = document.getElementById('homeUrlInput');
   if (urlInput) {
     urlInput.value = url;
@@ -1199,12 +1209,13 @@ function copyAndFillLink(url, title, el) {
 
   // Copia para clipboard
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(url).then(() => showCopyToast(title, el)).catch(() => fallbackCopy(url, title, el));
+    navigator.clipboard.writeText(url)
+      .then(() => showCopyToast(title, el))
+      .catch(() => fallbackCopy(url, title, el));
   } else {
     fallbackCopy(url, title, el);
   }
 }
-
 function fallbackCopy(url, title, el) {
   const ta = document.createElement('textarea');
   ta.value = url;
