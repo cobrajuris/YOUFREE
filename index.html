@@ -174,6 +174,39 @@
           </div>
         </div>
 
+        <!-- ═══════════════════════════════════════════════════
+             BUSCA POR ARTISTA
+             ═══════════════════════════════════════════════ -->
+        <div class="artist-search-card card">
+          <p class="card-label">Busca por Artista</p>
+          <div class="artist-search-group">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="input-icon">
+              <circle cx="11" cy="11" r="8"/>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              <path d="M11 8a3 3 0 0 1 3 3" stroke-linecap="round"/>
+            </svg>
+            <input
+              type="text"
+              id="artistSearchInput"
+              placeholder="Pesquise por seu artista favorito..."
+              autocomplete="off"
+              onkeydown="if(event.key==='Enter') searchArtist()"
+            />
+            <button class="btn-primary btn-sm" onclick="searchArtist()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16">
+                <circle cx="11" cy="11" r="8"/>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              Buscar
+            </button>
+          </div>
+          <p class="artist-search-hint">Ex: Coldplay, Ed Sheeran, Taylor Swift, Anitta, Alok</p>
+        </div>
+
+        <!-- Seção de resultados do catálogo do artista -->
+        <section id="artistCatalogSection" class="artist-catalog-section hidden"></section>
+
+
         <!-- Sugestões de álbuns — rotacionam a cada hora -->
         <section class="content-section">
           <div class="section-header">
