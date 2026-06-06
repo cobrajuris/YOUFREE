@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YouFree – Sua música, livre.</title>
+  <meta name="description" content="YouFree: organize playlists, baixe vídeos e músicas em MP3/MP4 gratuitamente." />
+  <link rel="stylesheet" href="style.css" />
+  <!-- Google Fonts: Syne (display) + DM Sans (corpo) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════════════════
+       MODAL: AUTENTICAÇÃO (Login / Cadastro)
+  ═══════════════════════════════════════════════════ -->
+  <div id="authModal" class="modal-overlay" role="dialog" aria-modal="true" aria-label="Autenticação">
+    <div class="modal-box auth-box">
+      <!-- Logo dentro do modal -->
+      <div class="modal-logo">
+        <svg class="logo-svg" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <!-- Botão Play (triângulo) -->
+          <polygon points="6,4 6,44 44,24" fill="var(--red)" opacity="0.18" />
+          <!-- Cifra musical: colcheia estilizada -->
+          <line x1="28" y1="8" x2="28" y2="34" stroke="var(--blue)" stroke-width="3" stroke-linecap="round"/>
+          <line x1="28" y1="8" x2="42" y2="12" stroke="var(--blue)" stroke-width="3" stroke-linecap="round"/>
+          <ellipse cx="23" cy="35" rx="6" ry="4" fill="var(--blue)" transform="rotate(-15 23 35)"/>
+          <!-- Acento vermelho: Play sobreposto -->
+          <polygon points="10,10 10,38 34,24" fill="var(--red)" opacity="0.85"/>
+          <!-- Nota branca no centro do play -->
+          <line x1="22" y1="16" x2="22" y2="30" stroke="white" stroke-width="2.2" stroke-linecap="round"/>
+          <ellipse cx="19.5" cy="31" rx="3.5" ry="2.4" fill="white" transform="rotate(-15 19.5 31)"/>
+        </svg>
+        <span class="logo-name">YouFree</span>
+      </div>
+
+      <!-- Abas Login / Cadastro -->
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tabLogin" onclick="switchAuthTab('login')">Entrar</button>
+        <button class="auth-tab" id="tabRegister" onclick="switchAuthTab('register')">Criar conta</button>
+      </div>
+
+      <!-- Formulário Login -->
+      <div id="formLogin" class="auth-form">
+        <label for="loginEmail">E-mail</label>
+        <input type="email" id="loginEmail" placeholder="seu@email.com" autocomplete="email" />
+        <label for="loginPass">Senha</label>
+        <input type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password" />
+        <p id="loginError" class="auth-error"></p>
+        <button class="btn-primary" onclick="handleLogin()">Entrar</button>
+        <button class="btn-ghost" onclick="handleGuestAccess()">Continuar sem conta</button>
+      </div>
+
+      <!-- Formulário Cadastro -->
+      <div id="formRegister" class="auth-form hidden">
+        <label for="regName">Nome</label>
+        <input type="text" id="regName" placeholder="Seu nome" autocomplete="name" />
+        <label for="regEmail">E-mail</label>
+        <input type="email" id="regEmail" placeholder="seu@email.com" autocomplete="email" />
+        <label for="regPass">Senha</label>
+        <input type="password" id="regPass" placeholder="Mínimo 6 caracteres" autocomplete="new-password" />
+        <p id="registerError" class="auth-error"></p>
+        <button class="btn-primary" onclick="handleRegister()">Criar conta gratuita</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════
+       MODAL: CRIAR / EDITAR PLAYLIST
+  ═══════════════════════════════════════════════════ -->
+  <div id="playlistModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-label="Nova Playlist">
+    <div class="modal-box playlist-box">
+      <button class="modal-close" onclick="closePlaylistModal()" aria-label="Fechar">✕</button>
+      <h2 id="playlistModalTitle">Nova Playlist</h2>
+      <label for="playlistName">Nome da playlist</label>
+      <input type="text" id="playlistName" placeholder="Ex: Treino 🔥, Viagem ✈️, Foco 🎯" maxlength="40" />
+      <label for="playlistTheme">Tema / Emoji</label>
+      <div class="theme-picker" id="themePicker">
+        <button class="theme-btn active" data-theme="🎵" onclick="selectTheme(this)">🎵</button>
+        <button class="theme-btn" data-theme="🔥" onclick="selectTheme(this)">🔥</button>
+        <button class="theme-btn" data-theme="✈️" onclick="selectTheme(this)">✈️</button>
+        <button class="theme-btn" data-theme="🎯" onclick="selectTheme(this)">🎯</button>
+        <button class="theme-btn" data-theme="🌊" onclick="selectTheme(this)">🌊</button>
+        <button class="theme-btn" data-theme="🌙" onclick="selectTheme(this)">🌙</button>
+        <button class="theme-btn" data-theme="⚡" onclick="selectTheme(this)">⚡</button>
+        <button class="theme-btn" data-theme="🎸" onclick="selectTheme(this)">🎸</button>
+      </div>
+      <button class="btn-primary" onclick="savePlaylist()">Salvar</button>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════
+       APP SHELL
+  ═══════════════════════════════════════════════════ -->
+  <div id="appShell" class="app-shell hidden">
+
+    <!-- ─── SIDEBAR (Desktop) ─── -->
+    <aside class="sidebar" id="sidebar">
+      <!-- Logo -->
+      <div class="sidebar-logo">
+        <svg class="logo-svg" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <polygon points="6,4 6,44 44,24" fill="var(--red)" opacity="0.15"/>
+          <line x1="28" y1="8" x2="28" y2="34" stroke="var(--blue)" stroke-width="3" stroke-linecap="round"/>
+          <line x1="28" y1="8" x2="42" y2="12" stroke="var(--blue)" stroke-width="3" stroke-linecap="round"/>
+          <ellipse cx="23" cy="35" rx="6" ry="4" fill="var(--blue)" transform="rotate(-15 23 35)"/>
+          <polygon points="10,10 10,38 34,24" fill="var(--red)" opacity="0.88"/>
+          <line x1="22" y1="16" x2="22" y2="30" stroke="white" stroke-width="2.2" stroke-linecap="round"/>
+          <ellipse cx="19.5" cy="31" rx="3.5" ry="2.4" fill="white" transform="rotate(-15 19.5 31)"/>
+        </svg>
+        <span class="logo-name">YouFree</span>
+      </div>
+
+      <!-- Navegação principal -->
+      <nav class="sidebar-nav" aria-label="Navegação principal">
+        <button class="nav-item active" onclick="navigateTo('home')" data-page="home">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          Início
+        </button>
+        <button class="nav-item" onclick="navigateTo('downloader')" data-page="downloader">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Baixar
+        </button>
+        <button class="nav-item" onclick="navigateTo('playlists')" data-page="playlists">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+          Playlists
+        </button>
+        <button class="nav-item" onclick="navigateTo('explore')" data-page="explore">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          Explorar
+        </button>
+      </nav>
+
+      <!-- Minhas Playlists na sidebar -->
+      <div class="sidebar-playlists">
+        <div class="sidebar-section-header">
+          <span>Minhas Playlists</span>
+          <button class="btn-icon-sm" onclick="openPlaylistModal()" title="Nova playlist" aria-label="Nova playlist">+</button>
+        </div>
+        <div id="sidebarPlaylistList" class="sidebar-playlist-list"></div>
+      </div>
+
+      <!-- Perfil do usuário -->
+      <div class="sidebar-user">
+        <div class="user-avatar" id="sidebarAvatar">Y</div>
+        <div class="user-info">
+          <span id="sidebarUserName">Visitante</span>
+          <span id="sidebarUserEmail" class="user-email">guest</span>
+        </div>
+        <button class="btn-icon-sm logout-btn" onclick="handleLogout()" title="Sair" aria-label="Sair">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+    </aside>
+
+    <!-- ─── CONTEÚDO PRINCIPAL ─── -->
+    <main class="main-content" id="mainContent">
+
+      <!-- ══ PÁGINA: HOME / DASHBOARD ══ -->
+      <section id="page-home" class="page active">
+        <header class="page-header">
+          <h1 id="greetingTitle">Boa tarde! 👋</h1>
+          <p class="page-subtitle">Descubra, baixe e organize sua música favorita.</p>
+        </header>
+
+        <!-- Conversor rápido -->
+        <div class="quick-convert card">
+          <p class="card-label">Conversor Rápido</p>
+          <div class="url-input-group">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="input-icon"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="url" id="homeUrlInput" placeholder="Cole o link do YouTube aqui..." />
+            <button class="btn-primary btn-sm" onclick="processFromHome()">Processar</button>
+          </div>
+        </div>
+
+        <!-- Sugestões de álbuns — rotacionam a cada hora -->
+        <section class="content-section">
+          <div class="section-header">
+            <h2>Álbuns em Destaque</h2>
+            <span class="update-badge" id="updateBadge">Atualiza em <span id="countdownTimer">--:--</span></span>
+          </div>
+          <div class="horizontal-scroll" id="albumGrid"></div>
+        </section>
+
+        <!-- Artistas populares -->
+        <section class="content-section">
+          <h2>Artistas Populares</h2>
+          <div class="artists-grid" id="artistsGrid"></div>
+        </section>
+      </section>
+
+      <!-- ══ PÁGINA: DOWNLOADER ══ -->
+      <section id="page-downloader" class="page hidden">
+        <header class="page-header">
+          <h1>Baixar Conteúdo</h1>
+          <p class="page-subtitle">Informe o link do YouTube e escolha o formato.</p>
+        </header>
+
+        <div class="downloader-card card">
+          <div class="url-input-group large">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="input-icon"><path d="M22.54 6.42a2.78 2.78 0 00-1.95-1.96C18.88 4 12 4 12 4s-6.88 0-8.59.46A2.78 2.78 0 001.46 6.42 29 29 0 001 12a29 29 0 00.46 5.58 2.78 2.78 0 001.95 1.96C5.12 20 12 20 12 20s6.88 0 8.59-.46a2.78 2.78 0 001.95-1.96A29 29 0 0023 12a29 29 0 00-.46-5.58z"/><polygon points="9.75 15.02 15.5 12 9.75 8.98 9.75 15.02" fill="white" stroke="none"/></svg>
+            <input type="url" id="downloaderUrlInput" placeholder="https://www.youtube.com/watch?v=..." />
+          </div>
+          <button class="btn-primary btn-large" id="processBtn" onclick="handleProcessUrl()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+            Processar Link
+          </button>
+        </div>
+
+        <!-- Loader -->
+        <div id="processingLoader" class="loader-container hidden">
+          <div class="loader-ring"></div>
+          <p>Processando link<span class="dot-anim">...</span></p>
+        </div>
+
+        <!-- Card de resultado -->
+        <div id="resultCard" class="result-card card hidden">
+          <div class="result-header">
+            <img id="resultCover" src="" alt="Capa do álbum" class="result-cover" />
+            <div class="result-info">
+              <h3 id="resultTitle">Título</h3>
+              <p id="resultArtist" class="result-artist">Artista</p>
+              <p id="resultDuration" class="result-duration">⏱ Duração</p>
+            </div>
+          </div>
+
+          <!-- Abas MP3 / MP4 -->
+          <div class="format-tabs">
+            <button class="format-tab active" id="tabMp3" onclick="switchFormatTab('mp3')">
+              🎵 MP3 (Música)
+            </button>
+            <button class="format-tab" id="tabMp4" onclick="switchFormatTab('mp4')">
+              🎬 MP4 (Vídeo)
+            </button>
+          </div>
+
+          <!-- Painel MP3 -->
+          <div id="panelMp3" class="format-panel">
+            <div class="format-info">
+              <span class="format-badge audio">ÁUDIO</span>
+              <span>MP3 • 320kbps • Com capa do álbum embutida</span>
+            </div>
+            <div class="action-row">
+              <button class="btn-primary" onclick="handleDownload('mp3', '320kbps')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Baixar MP3 (Com Capa)
+              </button>
+              <button class="btn-outline" onclick="openAddToPlaylistMenu('mp3')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Adicionar à Playlist
+              </button>
+            </div>
+          </div>
+
+          <!-- Painel MP4 -->
+          <div id="panelMp4" class="format-panel hidden">
+            <div class="format-info">
+              <span class="format-badge video">VÍDEO</span>
+              <span>Escolha a qualidade de download</span>
+            </div>
+            <div class="quality-grid">
+              <button class="quality-btn" onclick="handleDownload('mp4', '360p')">
+                <span class="quality-label">360p</span>
+                <span class="quality-size">~50MB</span>
+              </button>
+              <button class="quality-btn featured" onclick="handleDownload('mp4', '720p')">
+                <span class="quality-label">720p</span>
+                <span class="quality-tag">HD</span>
+                <span class="quality-size">~150MB</span>
+              </button>
+              <button class="quality-btn" onclick="handleDownload('mp4', '1080p')">
+                <span class="quality-label">1080p</span>
+                <span class="quality-tag">Full HD</span>
+                <span class="quality-size">~300MB</span>
+              </button>
+            </div>
+            <div class="action-row" style="margin-top:1rem;">
+              <button class="btn-outline" onclick="openAddToPlaylistMenu('mp4')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Adicionar à Playlist
+              </button>
+            </div>
+          </div>
+
+          <!-- Menu flutuante: adicionar à playlist -->
+          <div id="addToPlaylistMenu" class="floating-menu hidden">
+            <p class="floating-menu-title">Adicionar à playlist:</p>
+            <div id="addToPlaylistList" class="floating-menu-list"></div>
+            <button class="btn-ghost btn-sm" onclick="openPlaylistModal()">+ Nova Playlist</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══ PÁGINA: PLAYLISTS ══ -->
+      <section id="page-playlists" class="page hidden">
+        <header class="page-header">
+          <h1>Minhas Playlists</h1>
+          <button class="btn-primary btn-sm" onclick="openPlaylistModal()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Nova Playlist
+          </button>
+        </header>
+
+        <div id="playlistsGrid" class="playlists-grid"></div>
+        <div id="playlistDetail" class="playlist-detail hidden"></div>
+      </section>
+
+      <!-- ══ PÁGINA: EXPLORAR ══ -->
+      <section id="page-explore" class="page hidden">
+        <header class="page-header">
+          <h1>Explorar</h1>
+          <p class="page-subtitle">Álbuns e artistas selecionados para você.</p>
+        </header>
+        <section class="content-section">
+          <h2>Todos os Álbuns</h2>
+          <div class="albums-grid-full" id="exploreAlbumGrid"></div>
+        </section>
+        <section class="content-section">
+          <h2>Todos os Artistas</h2>
+          <div class="artists-grid" id="exploreArtistsGrid"></div>
+        </section>
+      </section>
+
+    </main><!-- /main-content -->
+
+    <!-- ─── BOTTOM NAV (Mobile) ─── -->
+    <nav class="bottom-nav" aria-label="Navegação mobile">
+      <button class="bottom-nav-item active" onclick="navigateTo('home')" data-page="home">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        <span>Início</span>
+      </button>
+      <button class="bottom-nav-item" onclick="navigateTo('downloader')" data-page="downloader">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span>Baixar</span>
+      </button>
+      <button class="bottom-nav-item" onclick="navigateTo('playlists')" data-page="playlists">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        <span>Playlists</span>
+      </button>
+      <button class="bottom-nav-item" onclick="navigateTo('explore')" data-page="explore">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <span>Explorar</span>
+      </button>
+    </nav>
+
+  </div><!-- /appShell -->
+
+  <!-- Toast de notificação -->
+  <div id="toast" class="toast" role="alert" aria-live="polite"></div>
+
+  <script src="script.js"></script>
+</body>
+</html>

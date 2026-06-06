@@ -1,0 +1,1036 @@
+/**
+ * ═══════════════════════════════════════════════════════════════
+ *  YouFree – script.js
+ *  Plataforma de organização de playlists e download de mídia
+ *
+ *  Arquitetura: SPA em Vanilla JS ES6+
+ *  Persistência: LocalStorage (GitHub Pages)
+ *  Pronto para migração ao Back-end Base44
+ * ═══════════════════════════════════════════════════════════════
+ */
+
+'use strict';
+
+/* ╔════════════════════════════════════════════════════════════╗
+   ║  1. CONSTANTES E BANCO DE DADOS SIMULADO                  ║
+   ╚════════════════════════════════════════════════════════════╝ */
+
+/** Chaves de LocalStorage */
+const LS = {
+  USERS:     'yf_users',
+  SESSION:   'yf_session',
+  PLAYLISTS: 'yf_playlists',
+};
+
+/**
+ * Base de dados de álbuns simulados.
+ * Dividida em grupos de 8; cada hora exibe um grupo diferente.
+ * Imagens: Unsplash (sem chave de API necessária).
+ */
+const ALBUM_BANK = [
+  // Grupo 0 – hora par inicial
+  [
+    { title: 'After Hours', artist: 'The Weeknd', cover: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=300&h=300&fit=crop', url: 'https://youtube.com/watch?v=X' },
+    { title: 'Future Nostalgia', artist: 'Dua Lipa', cover: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&h=300&fit=crop', url: 'https://youtube.com/watch?v=Y' },
+    { title: 'DAMN.', artist: 'Kendrick Lamar', cover: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop', url: 'https://youtube.com/watch?v=Z' },
+    { title: '÷ (Divide)', artist: 'Ed Sheeran', cover: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=300&h=300&fit=crop', url: 'https://youtube.com/watch?v=A' },
+    { title: 'Blonde', artist: 'Frank Ocean', cover: 'https://images.unsplash.com/photo-1487180144351-b8472da7d491?w=300&h=300&fit=crop', url: 'https://youtube.com/watch?v=B' },
+    { title: 'Midnights', artist: 'Taylor Swift', cover: 'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=300&h=300&fit=crop', url: 'https://youtube.com/watch?v=C' },
+    { title: 'Random Access Memories', artist: 'Daft Punk', cover: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=300&h=300&fit=crop', url: 'https://youtube.com/watch?v=D' },
+    { title: 'good kid, m.A.A.d city', artist: 'Kendrick Lamar', cover: 'https://images.unsplash.com/photo-1478147427282-58a87a433b70?w=300&h=300&fit=crop', url: 'https://youtube.com/watch?v=E' },
+  ],
+  // Grupo 1
+  [
+    { title: 'Thriller', artist: 'Michael Jackson', cover: 'https://images.unsplash.com/photo-1614680376739-414d95ff43df?w=300&h=300&fit=crop', url: 'https://youtube.com/watch?v=F' },
+    { title: '1989', artist: 'Taylor Swift', cover: 'https://images.unsplash.com/photo-1464375117522-1311d6a5b81f?w=300&h=300&fit=crop', url: 'https://youtube.com/watch?v=G' },
+    { title: 'Lemonade', artist: 'Beyoncé', cover: 'https://images.unsplash.com/photo-1506157786151-b8491531f063?w=300&h=300&fit=crop', url: 'https://youtube.com/watch?v=H' },
+    { title: 'In Rainbows', artist: 'Radiohead', cover: 'https://images.unsplash.com/photo-1519925610903-381054cc2a1c?w=300&h=300&fit=crop', url: 'https://youtube.com/watch?v=I' },
+    { title: 'folklore', artist: 'Taylor Swift', cover: 'https://images.unsplash.com/photo-1468581264429-2548ef9eb732?w=300&h=300&fit=crop', url: 'https://youtube.com/watch?v=J' },
+    { title: 'DS2', artist: 'Future', cover: 'https://images.unsplash.com/photo-1571330735066-03aaa9429d89?w=300&h=300&fit=crop', url: 'https://youtube.com/watch?v=K' },
+    { title: 'Igor', artist: 'Tyler, the Creator', cover: 'https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=300&h=300&fit=crop', url: 'https://youtube.com/watch?v=L' },
+    { title: '25', artist: 'Adele', cover: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=300&h=300&fit=crop', url: 'https://youtube.com/watch?v=M' },
+  ],
+  // Grupo 2
+  [
+    { title: 'The Dark Side of the Moon', artist: 'Pink Floyd', cover: 'https://images.unsplash.com/photo-1614680376573-df3480f0c6ff?w=300&h=300&fit=crop', url: 'https://youtube.com/watch?v=N' },
+    { title: 'Back in Black', artist: 'AC/DC', cover: 'https://images.unsplash.com/photo-1498038432885-c6f3f1b912ee?w=300&h=300&fit=crop', url: 'https://youtube.com/watch?v=O' },
+    { title: 'Nevermind', artist: 'Nirvana', cover: 'https://images.unsplash.com/photo-1510915361894-db8b60106cb1?w=300&h=300&fit=crop', url: 'https://youtube.com/watch?v=P' },
+    { title: 'Abbey Road', artist: 'The Beatles', cover: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=300&h=300&fit=crop', url: 'https://youtube.com/watch?v=Q' },
+    { title: 'Songs of Experience', artist: 'U2', cover: 'https://images.unsplash.com/photo-1485579149621-3123dd979885?w=300&h=300&fit=crop', url: 'https://youtube.com/watch?v=R' },
+    { title: 'Swimming', artist: 'Mac Miller', cover: 'https://images.unsplash.com/photo-1501612780327-45045538702b?w=300&h=300&fit=crop', url: 'https://youtube.com/watch?v=S' },
+    { title: 'Scorpion', artist: 'Drake', cover: 'https://images.unsplash.com/photo-1504898770365-14faca6a7320?w=300&h=300&fit=crop', url: 'https://youtube.com/watch?v=T' },
+    { title: 'Starboy', artist: 'The Weeknd', cover: 'https://images.unsplash.com/photo-1508854710579-5cecc3a9ff17?w=300&h=300&fit=crop', url: 'https://youtube.com/watch?v=U' },
+  ],
+];
+
+/** Base de dados de artistas simulados */
+const ARTIST_BANK = [
+  [
+    { name: 'The Weeknd', genre: 'R&B / Pop', avatar: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=200&h=200&fit=crop&crop=face' },
+    { name: 'Dua Lipa', genre: 'Dance Pop', avatar: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=200&h=200&fit=crop&crop=face' },
+    { name: 'Kendrick Lamar', genre: 'Hip-Hop', avatar: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=200&h=200&fit=crop&crop=face' },
+    { name: 'Taylor Swift', genre: 'Pop / Country', avatar: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200&h=200&fit=crop&crop=face' },
+    { name: 'Ed Sheeran', genre: 'Pop / Folk', avatar: 'https://images.unsplash.com/photo-1487180144351-b8472da7d491?w=200&h=200&fit=crop&crop=face' },
+    { name: 'Beyoncé', genre: 'R&B / Pop', avatar: 'https://images.unsplash.com/photo-1506157786151-b8491531f063?w=200&h=200&fit=crop&crop=face' },
+  ],
+  [
+    { name: 'Drake', genre: 'Hip-Hop / Rap', avatar: 'https://images.unsplash.com/photo-1504898770365-14faca6a7320?w=200&h=200&fit=crop&crop=face' },
+    { name: 'Adele', genre: 'Soul / Pop', avatar: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=200&h=200&fit=crop&crop=face' },
+    { name: 'Frank Ocean', genre: 'R&B / Soul', avatar: 'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=200&h=200&fit=crop&crop=face' },
+    { name: 'Daft Punk', genre: 'Electronic', avatar: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=200&h=200&fit=crop&crop=face' },
+    { name: 'Radiohead', genre: 'Alternative', avatar: 'https://images.unsplash.com/photo-1519925610903-381054cc2a1c?w=200&h=200&fit=crop&crop=face' },
+    { name: 'Mac Miller', genre: 'Hip-Hop', avatar: 'https://images.unsplash.com/photo-1501612780327-45045538702b?w=200&h=200&fit=crop&crop=face' },
+  ],
+  [
+    { name: 'Tyler, the Creator', genre: 'Hip-Hop', avatar: 'https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=200&h=200&fit=crop&crop=face' },
+    { name: 'Pink Floyd', genre: 'Progressive Rock', avatar: 'https://images.unsplash.com/photo-1614680376573-df3480f0c6ff?w=200&h=200&fit=crop&crop=face' },
+    { name: 'Nirvana', genre: 'Grunge / Rock', avatar: 'https://images.unsplash.com/photo-1498038432885-c6f3f1b912ee?w=200&h=200&fit=crop&crop=face' },
+    { name: 'The Beatles', genre: 'Rock / Pop', avatar: 'https://images.unsplash.com/photo-1478147427282-58a87a433b70?w=200&h=200&fit=crop&crop=face' },
+    { name: 'AC/DC', genre: 'Hard Rock', avatar: 'https://images.unsplash.com/photo-1510915361894-db8b60106cb1?w=200&h=200&fit=crop&crop=face' },
+    { name: 'Future', genre: 'Trap / Rap', avatar: 'https://images.unsplash.com/photo-1571330735066-03aaa9429d89?w=200&h=200&fit=crop&crop=face' },
+  ],
+];
+
+/**
+ * Dados simulados de vídeos — usados para simular a resposta de API ao processar um link.
+ * Na Base44, essa função será substituída por chamada real de API.
+ */
+const MOCK_VIDEOS = [
+  { title: 'Blinding Lights', artist: 'The Weeknd', duration: '3:20', cover: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=400&h=400&fit=crop' },
+  { title: 'Levitating', artist: 'Dua Lipa', duration: '3:23', cover: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&h=400&fit=crop' },
+  { title: 'HUMBLE.', artist: 'Kendrick Lamar', duration: '2:57', cover: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400&h=400&fit=crop' },
+  { title: 'Shape of You', artist: 'Ed Sheeran', duration: '3:53', cover: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=400&h=400&fit=crop' },
+  { title: 'Nights', artist: 'Frank Ocean', duration: '5:07', cover: 'https://images.unsplash.com/photo-1487180144351-b8472da7d491?w=400&h=400&fit=crop' },
+  { title: 'Anti-Hero', artist: 'Taylor Swift', duration: '3:20', cover: 'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=400&h=400&fit=crop' },
+  { title: 'Get Lucky', artist: 'Daft Punk ft. Pharrell', duration: '6:09', cover: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&h=400&fit=crop' },
+  { title: 'Creep', artist: 'Radiohead', duration: '3:58', cover: 'https://images.unsplash.com/photo-1519925610903-381054cc2a1c?w=400&h=400&fit=crop' },
+];
+
+/* ╔════════════════════════════════════════════════════════════╗
+   ║  2. ESTADO GLOBAL DA APLICAÇÃO                            ║
+   ╚════════════════════════════════════════════════════════════╝ */
+
+const App = {
+  currentUser:    null,   // Objeto do usuário logado
+  currentPage:    'home', // Página ativa
+  playlists:      [],     // Array de playlists do usuário
+  processedItem:  null,   // Item atualmente processado no downloader
+  addFormat:      null,   // Formato a ser adicionado à playlist ('mp3' | 'mp4')
+  selectedTheme:  '🎵',  // Tema selecionado no modal de playlist
+  editPlaylistId: null,   // ID da playlist sendo editada
+  countdownRef:   null,   // Referência do setInterval do countdown
+};
+
+/* ╔════════════════════════════════════════════════════════════╗
+   ║  3. INICIALIZAÇÃO                                         ║
+   ╚════════════════════════════════════════════════════════════╝ */
+
+document.addEventListener('DOMContentLoaded', () => {
+  restoreSession();
+  initHourlyRotation();
+  updateGreeting();
+});
+
+/** Tenta restaurar sessão salva no LocalStorage */
+function restoreSession() {
+  try {
+    const sessionData = localStorage.getItem(LS.SESSION);
+    if (sessionData) {
+      App.currentUser = JSON.parse(sessionData);
+      bootApp();
+    } else {
+      // Mostra modal de autenticação
+      showElement('authModal');
+    }
+  } catch (e) {
+    showElement('authModal');
+  }
+}
+
+/** Inicializa o app após login/sessão restaurada */
+function bootApp() {
+  App.playlists = loadPlaylists();
+  updateSidebarUser();
+  renderSidebarPlaylists();
+  showElement('appShell');
+  hideElement('authModal');
+  navigateTo('home');
+}
+
+/* ╔════════════════════════════════════════════════════════════╗
+   ║  4. AUTENTICAÇÃO                                          ║
+   ║                                                           ║
+   ║  TODO: Substituir por chamada de API (Fetch) ao migrar    ║
+   ║        para o servidor da Base44.                         ║
+   ║        Endpoint sugerido: POST /api/auth/login            ║
+   ╚════════════════════════════════════════════════════════════╝ */
+
+/**
+ * Alterna entre aba de login e cadastro no modal de autenticação.
+ * @param {'login'|'register'} tab
+ */
+function switchAuthTab(tab) {
+  const isLogin = tab === 'login';
+  el('tabLogin').classList.toggle('active', isLogin);
+  el('tabRegister').classList.toggle('active', !isLogin);
+  toggleVisibility('formLogin', isLogin);
+  toggleVisibility('formRegister', !isLogin);
+  el('loginError').textContent = '';
+  el('registerError').textContent = '';
+}
+
+/**
+ * TODO: Substituir por chamada de API (Fetch) ao migrar para o servidor da Base44.
+ * Autentica o usuário usando dados do LocalStorage.
+ * Na Base44: POST /api/auth/login { email, password } → { token, user }
+ */
+async function handleLogin() {
+  const email = el('loginEmail').value.trim();
+  const pass  = el('loginPass').value;
+  el('loginError').textContent = '';
+
+  if (!email || !pass) {
+    el('loginError').textContent = 'Preencha e-mail e senha.';
+    return;
+  }
+
+  // Simulação: busca usuário no LocalStorage
+  const users = getUsers();
+  const user = users.find(u => u.email === email && u.password === simpleHash(pass));
+
+  if (!user) {
+    el('loginError').textContent = 'E-mail ou senha incorretos.';
+    return;
+  }
+
+  persistSession(user);
+  showToast(`Bem-vindo(a) de volta, ${user.name}! 👋`, 'success');
+  bootApp();
+}
+
+/**
+ * TODO: Substituir por chamada de API (Fetch) ao migrar para o servidor da Base44.
+ * Cria uma nova conta de usuário, persiste no LocalStorage.
+ * Na Base44: POST /api/auth/register { name, email, password } → { token, user }
+ */
+async function handleRegister() {
+  const name  = el('regName').value.trim();
+  const email = el('regEmail').value.trim();
+  const pass  = el('regPass').value;
+  el('registerError').textContent = '';
+
+  if (!name || !email || !pass) {
+    el('registerError').textContent = 'Preencha todos os campos.';
+    return;
+  }
+  if (!isValidEmail(email)) {
+    el('registerError').textContent = 'E-mail inválido.';
+    return;
+  }
+  if (pass.length < 6) {
+    el('registerError').textContent = 'A senha precisa ter ao menos 6 caracteres.';
+    return;
+  }
+
+  const users = getUsers();
+  if (users.some(u => u.email === email)) {
+    el('registerError').textContent = 'E-mail já cadastrado.';
+    return;
+  }
+
+  const newUser = { id: uid(), name, email, password: simpleHash(pass), createdAt: Date.now() };
+  users.push(newUser);
+  localStorage.setItem(LS.USERS, JSON.stringify(users));
+
+  persistSession(newUser);
+  showToast(`Conta criada com sucesso! Bem-vindo(a), ${name}! 🎉`, 'success');
+  bootApp();
+}
+
+/** Acesso como visitante (sem conta) */
+function handleGuestAccess() {
+  const guest = { id: 'guest', name: 'Visitante', email: 'guest@youfree.app', guest: true };
+  App.currentUser = guest;
+  showToast('Modo visitante. Dados não persistem.', 'info');
+  bootApp();
+}
+
+/**
+ * TODO: Substituir por chamada de API (Fetch) ao migrar para o servidor da Base44.
+ * Encerra a sessão do usuário.
+ * Na Base44: POST /api/auth/logout
+ */
+function handleLogout() {
+  localStorage.removeItem(LS.SESSION);
+  App.currentUser = null;
+  App.playlists   = [];
+  App.processedItem = null;
+  hideElement('appShell');
+  showElement('authModal');
+  switchAuthTab('login');
+  showToast('Sessão encerrada.', 'info');
+}
+
+/* ╔════════════════════════════════════════════════════════════╗
+   ║  5. PROCESSAMENTO DE URL / DOWNLOADER                     ║
+   ║                                                           ║
+   ║  TODO: Substituir por chamada de API (Fetch) ao migrar    ║
+   ║        para o servidor da Base44.                         ║
+   ║        Endpoint sugerido: POST /api/media/info { url }    ║
+   ╚════════════════════════════════════════════════════════════╝ */
+
+/**
+ * TODO: Substituir por chamada de API (Fetch) ao migrar para o servidor da Base44.
+ * Processa um link do YouTube e exibe as informações de download.
+ * Na Base44: POST /api/media/info { url } → { title, artist, duration, cover, formats }
+ */
+async function handleProcessUrl() {
+  const urlInput = el('downloaderUrlInput');
+  const rawUrl   = urlInput.value.trim();
+
+  if (!rawUrl) {
+    showToast('Cole um link do YouTube primeiro.', 'error');
+    return;
+  }
+  if (!isYouTubeUrl(rawUrl)) {
+    showToast('Por favor, informe um link válido do YouTube.', 'error');
+    return;
+  }
+
+  // Exibe loader, esconde resultado anterior
+  showElement('processingLoader');
+  hideElement('resultCard');
+  el('processBtn').disabled = true;
+  hideElement('addToPlaylistMenu');
+
+  // Simula latência de rede (1.8s – 2.8s)
+  await sleep(randomInt(1800, 2800));
+
+  // Simulação: seleciona um item aleatório do banco de vídeos
+  const mockData = MOCK_VIDEOS[Math.floor(Math.random() * MOCK_VIDEOS.length)];
+
+  App.processedItem = {
+    id:       uid(),
+    url:      rawUrl,
+    title:    mockData.title,
+    artist:   mockData.artist,
+    duration: mockData.duration,
+    cover:    mockData.cover,
+  };
+
+  // Preenche o card de resultado
+  el('resultCover').src     = App.processedItem.cover;
+  el('resultTitle').textContent    = App.processedItem.title;
+  el('resultArtist').textContent   = App.processedItem.artist;
+  el('resultDuration').textContent = `⏱ ${App.processedItem.duration}`;
+
+  hideElement('processingLoader');
+  showElement('resultCard');
+  el('processBtn').disabled = false;
+
+  // Garante aba MP3 ativa
+  switchFormatTab('mp3');
+  hideElement('addToPlaylistMenu');
+}
+
+/** Atalho para processar da barra de busca da home */
+function processFromHome() {
+  const url = el('homeUrlInput').value.trim();
+  if (!url) { showToast('Cole um link do YouTube primeiro.', 'error'); return; }
+  navigateTo('downloader');
+  el('downloaderUrlInput').value = url;
+  handleProcessUrl();
+}
+
+/**
+ * TODO: Substituir por chamada de API (Fetch) ao migrar para o servidor da Base44.
+ * Efetua o download do arquivo no formato e qualidade solicitados.
+ * Na Base44:
+ *   - MP3: POST /api/media/download { url, format:'mp3', quality:'320kbps' }
+ *   - MP4: POST /api/media/download { url, format:'mp4', quality:'1080p' }
+ *   A resposta deve ser um stream de arquivo ou uma URL de download assinada.
+ *
+ * @param {'mp3'|'mp4'} format
+ * @param {string} quality  Ex: '320kbps', '360p', '720p', '1080p'
+ */
+async function handleDownload(format, quality) {
+  if (!App.processedItem) { showToast('Nenhum item processado.', 'error'); return; }
+
+  const item = App.processedItem;
+  showToast(`⏬ Preparando download: ${item.title} (${format.toUpperCase()} ${quality})…`, 'info');
+
+  // Simula delay de "geração do arquivo"
+  await sleep(1200);
+
+  /**
+   * SIMULAÇÃO PARA GITHUB PAGES:
+   * Como não há servidor, criamos um arquivo de texto simulando o download.
+   * Na Base44, este bloco será substituído por um fetch que retorna um Blob.
+   */
+  const content = [
+    `YouFree – Download Simulado`,
+    `──────────────────────────────`,
+    `Título:    ${item.title}`,
+    `Artista:   ${item.artist}`,
+    `Formato:   ${format.toUpperCase()}`,
+    `Qualidade: ${quality}`,
+    `URL:       ${item.url}`,
+    `Data:      ${new Date().toLocaleString('pt-BR')}`,
+    `──────────────────────────────`,
+    `NOTA: Este é um download simulado (GitHub Pages).`,
+    `Para downloads reais, acesse a versão hospedada na Base44.`,
+  ].join('\n');
+
+  const blob = new Blob([content], { type: 'text/plain' });
+  const link = document.createElement('a');
+  link.href  = URL.createObjectURL(blob);
+  const safeName = item.title.replace(/[^a-z0-9]/gi, '_');
+  link.download = `YouFree_${safeName}.${format === 'mp3' ? 'txt' : 'txt'}`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+
+  showToast(`✅ Download iniciado: ${item.title} (${format.toUpperCase()} ${quality})`, 'success');
+}
+
+/** Alterna entre as abas MP3 e MP4 no resultado */
+function switchFormatTab(tab) {
+  const isMp3 = tab === 'mp3';
+  el('tabMp3').classList.toggle('active', isMp3);
+  el('tabMp4').classList.toggle('active', !isMp3);
+  toggleVisibility('panelMp3', isMp3);
+  toggleVisibility('panelMp4', !isMp3);
+  hideElement('addToPlaylistMenu');
+}
+
+/* ╔════════════════════════════════════════════════════════════╗
+   ║  6. SISTEMA DE PLAYLISTS                                  ║
+   ╚════════════════════════════════════════════════════════════╝ */
+
+/** Carrega playlists do LocalStorage */
+function loadPlaylists() {
+  if (App.currentUser?.guest) return [];
+  try {
+    const key  = `${LS.PLAYLISTS}_${App.currentUser?.id}`;
+    const data = localStorage.getItem(key);
+    return data ? JSON.parse(data) : [];
+  } catch { return []; }
+}
+
+/** Persiste playlists no LocalStorage */
+function savePlaylists() {
+  if (App.currentUser?.guest) return;
+  const key = `${LS.PLAYLISTS}_${App.currentUser?.id}`;
+  localStorage.setItem(key, JSON.stringify(App.playlists));
+}
+
+/** Abre o modal de nova playlist */
+function openPlaylistModal(playlistId = null) {
+  App.editPlaylistId = playlistId;
+  const modal = el('playlistModal');
+
+  if (playlistId) {
+    const pl = App.playlists.find(p => p.id === playlistId);
+    if (!pl) return;
+    el('playlistModalTitle').textContent = 'Editar Playlist';
+    el('playlistName').value = pl.name;
+    App.selectedTheme = pl.theme;
+  } else {
+    el('playlistModalTitle').textContent = 'Nova Playlist';
+    el('playlistName').value = '';
+    App.selectedTheme = '🎵';
+  }
+
+  // Atualiza botões de tema
+  document.querySelectorAll('.theme-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.theme === App.selectedTheme);
+  });
+
+  modal.classList.remove('hidden');
+}
+
+function closePlaylistModal() {
+  el('playlistModal').classList.add('hidden');
+  App.editPlaylistId = null;
+}
+
+function selectTheme(btn) {
+  document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  App.selectedTheme = btn.dataset.theme;
+}
+
+/** Salva (cria ou edita) uma playlist */
+function savePlaylist() {
+  const name = el('playlistName').value.trim();
+  if (!name) { showToast('Digite um nome para a playlist.', 'error'); return; }
+
+  if (App.editPlaylistId) {
+    // Editar existente
+    const idx = App.playlists.findIndex(p => p.id === App.editPlaylistId);
+    if (idx >= 0) {
+      App.playlists[idx].name  = name;
+      App.playlists[idx].theme = App.selectedTheme;
+    }
+    showToast('Playlist atualizada! ✨', 'success');
+  } else {
+    // Criar nova
+    App.playlists.push({ id: uid(), name, theme: App.selectedTheme, items: [], createdAt: Date.now() });
+    showToast(`Playlist "${name}" criada! 🎵`, 'success');
+  }
+
+  savePlaylists();
+  closePlaylistModal();
+  renderSidebarPlaylists();
+  if (App.currentPage === 'playlists') renderPlaylistsPage();
+}
+
+/** Remove uma playlist */
+function deletePlaylist(id) {
+  App.playlists = App.playlists.filter(p => p.id !== id);
+  savePlaylists();
+  renderSidebarPlaylists();
+  renderPlaylistsPage();
+  showToast('Playlist removida.', 'info');
+}
+
+/** Abre menu de escolha de playlist para adicionar item */
+function openAddToPlaylistMenu(format) {
+  if (!App.processedItem) return;
+  App.addFormat = format;
+
+  if (App.currentUser?.guest) {
+    showToast('Faça login para salvar em playlists.', 'error');
+    return;
+  }
+
+  const menu     = el('addToPlaylistMenu');
+  const listEl   = el('addToPlaylistList');
+  listEl.innerHTML = '';
+
+  if (App.playlists.length === 0) {
+    listEl.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;padding:0.3rem 0.5rem;">Você ainda não tem playlists.</p>';
+  } else {
+    App.playlists.forEach(pl => {
+      const btn = document.createElement('button');
+      btn.className = 'pl-option-btn';
+      btn.innerHTML = `<span>${pl.theme}</span><span>${pl.name}</span><span style="margin-left:auto;font-size:0.75rem;color:var(--text-muted)">${pl.items.length} itens</span>`;
+      btn.onclick = () => addItemToPlaylist(pl.id);
+      listEl.appendChild(btn);
+    });
+  }
+
+  menu.classList.toggle('hidden');
+}
+
+/** Adiciona o item processado a uma playlist */
+function addItemToPlaylist(playlistId) {
+  const pl = App.playlists.find(p => p.id === playlistId);
+  if (!pl || !App.processedItem) return;
+
+  const already = pl.items.some(i => i.url === App.processedItem.url && i.format === App.addFormat);
+  if (already) {
+    showToast('Este item já está nessa playlist.', 'info');
+    return;
+  }
+
+  pl.items.push({ ...App.processedItem, format: App.addFormat, addedAt: Date.now() });
+  savePlaylists();
+  renderSidebarPlaylists();
+  hideElement('addToPlaylistMenu');
+  showToast(`Adicionado à "${pl.name}"! 🎶`, 'success');
+}
+
+/** Remove item de uma playlist */
+function removeItemFromPlaylist(playlistId, itemId) {
+  const pl = App.playlists.find(p => p.id === playlistId);
+  if (!pl) return;
+  pl.items = pl.items.filter(i => i.id !== itemId);
+  savePlaylists();
+  renderPlaylistDetail(playlistId);
+  showToast('Item removido da playlist.', 'info');
+}
+
+/* ╔════════════════════════════════════════════════════════════╗
+   ║  7. NAVEGAÇÃO E ROTEAMENTO                                ║
+   ╚════════════════════════════════════════════════════════════╝ */
+
+/**
+ * Navega para uma página da SPA.
+ * @param {'home'|'downloader'|'playlists'|'explore'} page
+ */
+function navigateTo(page) {
+  App.currentPage = page;
+
+  // Esconde todas as páginas
+  document.querySelectorAll('.page').forEach(p => {
+    p.classList.add('hidden');
+    p.classList.remove('active');
+  });
+
+  // Exibe página alvo
+  const target = el(`page-${page}`);
+  if (target) { target.classList.remove('hidden'); target.classList.add('active'); }
+
+  // Atualiza itens de navegação ativos (sidebar + bottom)
+  document.querySelectorAll('[data-page]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.page === page);
+  });
+
+  // Lógica específica de cada página
+  switch (page) {
+    case 'home':       renderHomePage();      break;
+    case 'playlists':  renderPlaylistsPage(); break;
+    case 'explore':    renderExplorePage();   break;
+  }
+
+  // Scroll ao topo
+  el('mainContent')?.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+/* ╔════════════════════════════════════════════════════════════╗
+   ║  8. RENDERIZAÇÃO – HOME                                   ║
+   ╚════════════════════════════════════════════════════════════╝ */
+
+function renderHomePage() {
+  updateGreeting();
+  renderAlbums('albumGrid', getHourlyGroup(ALBUM_BANK));
+  renderArtists('artistsGrid', getHourlyGroup(ARTIST_BANK));
+}
+
+/** Renderiza grid horizontal de álbuns */
+function renderAlbums(containerId, albums) {
+  const container = el(containerId);
+  if (!container) return;
+  container.innerHTML = '';
+  albums.forEach(album => {
+    const card = document.createElement('div');
+    card.className = 'album-card';
+    card.innerHTML = `
+      <div class="album-cover-wrap">
+        <img src="${album.cover}" alt="${escHtml(album.title)}" loading="lazy" />
+        <button class="album-play-btn" aria-label="Reproduzir ${escHtml(album.title)}"
+          onclick="quickDownloadAlbum(event, '${escHtml(album.url)}')">
+          <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        </button>
+      </div>
+      <div class="album-title">${escHtml(album.title)}</div>
+      <div class="album-artist">${escHtml(album.artist)}</div>
+    `;
+    container.appendChild(card);
+  });
+}
+
+/** Renderiza grid de artistas */
+function renderArtists(containerId, artists) {
+  const container = el(containerId);
+  if (!container) return;
+  container.innerHTML = '';
+  artists.forEach(artist => {
+    const card = document.createElement('div');
+    card.className = 'artist-card';
+    card.innerHTML = `
+      <div class="artist-avatar">
+        <img src="${artist.avatar}" alt="${escHtml(artist.name)}" loading="lazy" />
+      </div>
+      <div class="artist-name">${escHtml(artist.name)}</div>
+      <div class="artist-genre">${escHtml(artist.genre)}</div>
+    `;
+    container.appendChild(card);
+  });
+}
+
+/** Atalho: clica em um álbum da home → abre downloader com URL */
+function quickDownloadAlbum(e, url) {
+  e.stopPropagation();
+  navigateTo('downloader');
+  el('downloaderUrlInput').value = url;
+  handleProcessUrl();
+}
+
+/* ╔════════════════════════════════════════════════════════════╗
+   ║  9. RENDERIZAÇÃO – PLAYLISTS                              ║
+   ╚════════════════════════════════════════════════════════════╝ */
+
+function renderPlaylistsPage() {
+  const grid   = el('playlistsGrid');
+  const detail = el('playlistDetail');
+
+  showElement('playlistsGrid');
+  detail.classList.add('hidden');
+  detail.innerHTML = '';
+
+  grid.innerHTML = '';
+
+  if (App.currentUser?.guest) {
+    grid.innerHTML = `
+      <div class="empty-state" style="grid-column:1/-1">
+        <div class="empty-state-icon">🔒</div>
+        <h3>Faça login para usar playlists</h3>
+        <p>Crie uma conta gratuita e organize sua música favorita.</p>
+        <button class="btn-primary" onclick="handleLogout()" style="margin-top:0.75rem">Entrar / Cadastrar</button>
+      </div>`;
+    return;
+  }
+
+  if (App.playlists.length === 0) {
+    grid.innerHTML = `
+      <div class="empty-state" style="grid-column:1/-1">
+        <div class="empty-state-icon">🎵</div>
+        <h3>Nenhuma playlist ainda</h3>
+        <p>Crie sua primeira playlist e comece a organizar sua música.</p>
+        <button class="btn-primary" onclick="openPlaylistModal()" style="margin-top:0.75rem">
+          + Criar Playlist
+        </button>
+      </div>`;
+    return;
+  }
+
+  App.playlists.forEach(pl => {
+    const card = document.createElement('div');
+    card.className = 'playlist-card';
+    card.onclick = () => renderPlaylistDetail(pl.id);
+    card.innerHTML = `
+      <div class="playlist-card-actions">
+        <button class="playlist-action-btn" title="Editar" onclick="event.stopPropagation(); openPlaylistModal('${pl.id}')">✏️</button>
+        <button class="playlist-action-btn" title="Excluir" onclick="event.stopPropagation(); confirmDeletePlaylist('${pl.id}')">🗑</button>
+      </div>
+      <span class="playlist-emoji">${pl.theme}</span>
+      <div class="playlist-card-name">${escHtml(pl.name)}</div>
+      <div class="playlist-card-count">${pl.items.length} ${pl.items.length === 1 ? 'item' : 'itens'}</div>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+/** Renderiza o detalhe de uma playlist */
+function renderPlaylistDetail(playlistId) {
+  const pl     = App.playlists.find(p => p.id === playlistId);
+  const grid   = el('playlistsGrid');
+  const detail = el('playlistDetail');
+
+  if (!pl) return;
+
+  hideElement('playlistsGrid');
+  detail.classList.remove('hidden');
+
+  const itemsHtml = pl.items.length > 0
+    ? `<div class="playlist-items-list">
+        ${pl.items.map((item, idx) => `
+          <div class="playlist-item">
+            <span class="playlist-item-num">${idx + 1}</span>
+            <img class="playlist-item-cover" src="${escHtml(item.cover)}" alt="${escHtml(item.title)}" loading="lazy" />
+            <div class="playlist-item-info">
+              <div class="playlist-item-title">${escHtml(item.title)}</div>
+              <div class="playlist-item-meta">
+                ${escHtml(item.artist)} · ${escHtml(item.duration)}
+                <span class="playlist-item-format item-fmt-${item.format}">${item.format.toUpperCase()}</span>
+              </div>
+            </div>
+            <button class="playlist-item-remove" title="Remover"
+              onclick="removeItemFromPlaylist('${pl.id}', '${item.id}')">✕</button>
+          </div>
+        `).join('')}
+       </div>`
+    : `<div class="empty-state">
+         <div class="empty-state-icon">🎧</div>
+         <h3>Playlist vazia</h3>
+         <p>Processe um link no downloader e adicione aqui.</p>
+         <button class="btn-primary" onclick="navigateTo('downloader')" style="margin-top:0.75rem">Ir para o Downloader</button>
+       </div>`;
+
+  detail.innerHTML = `
+    <button class="playlist-back-btn" onclick="renderPlaylistsPage()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="15 18 9 12 15 6"/>
+      </svg>
+      Voltar
+    </button>
+    <div class="playlist-detail-header">
+      <div class="playlist-detail-emoji">${pl.theme}</div>
+      <div class="playlist-detail-info">
+        <h2>${escHtml(pl.name)}</h2>
+        <p>${pl.items.length} ${pl.items.length === 1 ? 'item' : 'itens'} · Criada em ${new Date(pl.createdAt).toLocaleDateString('pt-BR')}</p>
+      </div>
+    </div>
+    ${pl.items.length > 0 ? `
+      <button class="playlist-dl-all" onclick="downloadAllFromPlaylist('${pl.id}')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Baixar Tudo
+      </button>
+    ` : ''}
+    ${itemsHtml}
+  `;
+}
+
+/** Confirmação simples antes de deletar playlist */
+function confirmDeletePlaylist(id) {
+  const pl = App.playlists.find(p => p.id === id);
+  if (!pl) return;
+  if (window.confirm(`Excluir a playlist "${pl.name}"? Esta ação não pode ser desfeita.`)) {
+    deletePlaylist(id);
+  }
+}
+
+/**
+ * TODO: Substituir por chamada de API (Fetch) ao migrar para o servidor da Base44.
+ * Simula o download de todos os itens de uma playlist.
+ * Na Base44: POST /api/media/batch-download { items: [...] }
+ */
+async function downloadAllFromPlaylist(playlistId) {
+  const pl = App.playlists.find(p => p.id === playlistId);
+  if (!pl || pl.items.length === 0) return;
+  showToast(`⬇️ Iniciando download de ${pl.items.length} itens de "${pl.name}"…`, 'info');
+  await sleep(600);
+  showToast(`✅ ${pl.items.length} downloads iniciados! (Simulado)`, 'success');
+}
+
+/* ╔════════════════════════════════════════════════════════════╗
+   ║  10. RENDERIZAÇÃO – EXPLORAR                              ║
+   ╚════════════════════════════════════════════════════════════╝ */
+
+function renderExplorePage() {
+  // Exibe todos os grupos de álbuns combinados
+  const allAlbums   = ALBUM_BANK.flat();
+  const allArtists  = ARTIST_BANK.flat();
+  renderAlbums('exploreAlbumGrid', allAlbums);
+  renderArtists('exploreArtistsGrid', allArtists);
+}
+
+/* ╔════════════════════════════════════════════════════════════╗
+   ║  11. ROTAÇÃO HORÁRIA DE CONTEÚDO                          ║
+   ╚════════════════════════════════════════════════════════════╝ */
+
+/**
+ * Retorna o grupo de conteúdo correspondente à hora atual.
+ * Muda a cada hora cheia, simulando atualização de API em tempo real.
+ * @param {Array[]} bank - Array de grupos
+ * @returns {Array} Grupo atual
+ */
+function getHourlyGroup(bank) {
+  const hour = new Date().getHours();
+  return bank[hour % bank.length];
+}
+
+/**
+ * Inicializa o sistema de rotação horária.
+ * Verifica a cada minuto se a hora mudou; se sim, atualiza o conteúdo.
+ */
+function initHourlyRotation() {
+  let lastHour = new Date().getHours();
+
+  // Atualiza countdown a cada segundo
+  App.countdownRef = setInterval(() => {
+    updateCountdown();
+    const currentHour = new Date().getHours();
+    if (currentHour !== lastHour) {
+      lastHour = currentHour;
+      // Hora mudou: re-renderiza conteúdo da home e explorar
+      if (App.currentPage === 'home')    renderHomePage();
+      if (App.currentPage === 'explore') renderExplorePage();
+      showToast('🔄 Conteúdo atualizado!', 'info');
+    }
+  }, 1000);
+}
+
+/** Atualiza o countdown até a próxima hora cheia */
+function updateCountdown() {
+  const badge = el('countdownTimer');
+  if (!badge) return;
+  const now  = new Date();
+  const next = new Date(now);
+  next.setHours(now.getHours() + 1, 0, 0, 0);
+  const diff = Math.max(0, next - now);
+  const mm   = String(Math.floor(diff / 60000)).padStart(2, '0');
+  const ss   = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
+  badge.textContent = `${mm}:${ss}`;
+}
+
+/* ╔════════════════════════════════════════════════════════════╗
+   ║  12. SIDEBAR – RENDERIZAÇÃO DINÂMICA                      ║
+   ╚════════════════════════════════════════════════════════════╝ */
+
+function renderSidebarPlaylists() {
+  const list = el('sidebarPlaylistList');
+  if (!list) return;
+  list.innerHTML = '';
+
+  if (!App.currentUser || App.currentUser.guest || App.playlists.length === 0) {
+    list.innerHTML = `<p style="font-size:0.78rem;color:var(--text-muted);padding:0.3rem 0.5rem;">Nenhuma playlist</p>`;
+    return;
+  }
+
+  App.playlists.forEach(pl => {
+    const item = document.createElement('div');
+    item.className = 'sidebar-pl-item';
+    item.innerHTML = `<span class="sidebar-pl-emoji">${pl.theme}</span><span>${escHtml(pl.name)}</span>`;
+    item.onclick = () => { navigateTo('playlists'); renderPlaylistDetail(pl.id); };
+    list.appendChild(item);
+  });
+}
+
+function updateSidebarUser() {
+  const user = App.currentUser;
+  if (!user) return;
+  const initial = user.name ? user.name[0].toUpperCase() : 'Y';
+  el('sidebarAvatar').textContent    = initial;
+  el('sidebarUserName').textContent  = user.name;
+  el('sidebarUserEmail').textContent = user.email;
+}
+
+/* ╔════════════════════════════════════════════════════════════╗
+   ║  13. SAUDAÇÃO DINÂMICA                                    ║
+   ╚════════════════════════════════════════════════════════════╝ */
+
+function updateGreeting() {
+  const hour = new Date().getHours();
+  let greeting;
+  if (hour >= 5  && hour < 12) greeting = 'Bom dia! ☀️';
+  else if (hour >= 12 && hour < 18) greeting = 'Boa tarde! 🌤️';
+  else if (hour >= 18 && hour < 22) greeting = 'Boa noite! 🌆';
+  else greeting = 'Olá! 🌙';
+
+  const titleEl = el('greetingTitle');
+  if (titleEl) titleEl.textContent = greeting;
+}
+
+/* ╔════════════════════════════════════════════════════════════╗
+   ║  14. UTILITÁRIOS DE UI                                    ║
+   ╚════════════════════════════════════════════════════════════╝ */
+
+/** Mostra um toast de notificação */
+function showToast(msg, type = '') {
+  const toast = el('toast');
+  toast.textContent = msg;
+  toast.className   = `toast${type ? ' ' + type : ''}`;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 3400);
+}
+
+function showElement(id) { el(id)?.classList.remove('hidden'); }
+function hideElement(id) { el(id)?.classList.add('hidden'); }
+function toggleVisibility(id, show) { show ? showElement(id) : hideElement(id); }
+function el(id) { return document.getElementById(id); }
+
+/* ╔════════════════════════════════════════════════════════════╗
+   ║  15. UTILITÁRIOS GERAIS                                   ║
+   ╚════════════════════════════════════════════════════════════╝ */
+
+/** Gera ID único simples */
+function uid() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+/** Sleep assíncrono */
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+/** Número aleatório inteiro em [min, max] */
+function randomInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+
+/**
+ * Hash simples para senhas (APENAS para simulação no LocalStorage).
+ * Na Base44, usar bcrypt ou similar no servidor.
+ */
+function simpleHash(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + c;
+    hash |= 0;
+  }
+  return hash.toString(16);
+}
+
+/** Valida formato de e-mail */
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+/** Valida se é URL do YouTube */
+function isYouTubeUrl(url) {
+  try {
+    const u = new URL(url);
+    return ['youtube.com', 'www.youtube.com', 'youtu.be', 'm.youtube.com'].includes(u.hostname);
+  } catch {
+    // Se não for URL válida, permite processar mesmo assim (demo)
+    return true;
+  }
+}
+
+/** Escapa HTML para prevenir XSS */
+function escHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/** Carrega lista de usuários do LocalStorage */
+function getUsers() {
+  try {
+    const data = localStorage.getItem(LS.USERS);
+    return data ? JSON.parse(data) : [];
+  } catch { return []; }
+}
+
+/** Persiste a sessão do usuário */
+function persistSession(user) {
+  App.currentUser = user;
+  if (!user.guest) {
+    // Não persistir senha na sessão
+    const sessionUser = { ...user };
+    delete sessionUser.password;
+    localStorage.setItem(LS.SESSION, JSON.stringify(sessionUser));
+  }
+}
+
+/* ╔════════════════════════════════════════════════════════════╗
+   ║  16. FECHAMENTO DE MODAIS AO CLICAR FORA                  ║
+   ╚════════════════════════════════════════════════════════════╝ */
+
+document.addEventListener('click', (e) => {
+  // Fecha menu de "adicionar à playlist" ao clicar fora
+  const menu = el('addToPlaylistMenu');
+  if (menu && !menu.classList.contains('hidden')) {
+    if (!menu.contains(e.target) &&
+        !e.target.closest('[onclick*="openAddToPlaylistMenu"]')) {
+      hideElement('addToPlaylistMenu');
+    }
+  }
+
+  // Fecha modal de playlist ao clicar no overlay
+  const plModal = el('playlistModal');
+  if (plModal && !plModal.classList.contains('hidden')) {
+    if (e.target === plModal) closePlaylistModal();
+  }
+});
+
+/* ╔════════════════════════════════════════════════════════════╗
+   ║  17. TECLA ESC FECHA MODAIS                               ║
+   ╚════════════════════════════════════════════════════════════╝ */
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closePlaylistModal();
+    hideElement('addToPlaylistMenu');
+  }
+});
+
+/* ╔════════════════════════════════════════════════════════════╗
+   ║  18. ENTER NOS CAMPOS DE URL                              ║
+   ╚════════════════════════════════════════════════════════════╝ */
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    if (document.activeElement?.id === 'downloaderUrlInput') handleProcessUrl();
+    if (document.activeElement?.id === 'homeUrlInput')       processFromHome();
+    if (document.activeElement?.id === 'loginPass')          handleLogin();
+    if (document.activeElement?.id === 'regPass')            handleRegister();
+  }
+});
