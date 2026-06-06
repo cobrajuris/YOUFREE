@@ -1153,7 +1153,7 @@ function renderArtistCard(artist) {
     <li class="artist-song-item" onclick="copyAndFillLink('${song.url}', '${song.title.replace(/'/g, "\\'")}', this)">
       <span class="song-index">${String(i + 1).padStart(2, '0')}</span>
       <span class="song-title">${song.title}</span>
-      <button class="btn-copy-link" aria-label="Copiar link do YouTube de ${song.title}">
+      <button class="btn-copy-link" onclick="event.stopPropagation();copyAndFillLink('${song.url}','${song.title.replace(/'/g,\"\\\\'\")}',this.parentElement)" aria-label="Copiar link do YouTube de ${song.title}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.7"/></svg>
         Copiar Link
       </button>
@@ -1194,7 +1194,6 @@ function copyAndFillLink(url, title, el) {
   const urlInput = document.getElementById('homeUrlInput');
   if (urlInput) {
     urlInput.value = url;
-    urlInput.dispatchEvent(new Event('input'));
     urlInput.focus();
   }
 
