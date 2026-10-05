@@ -1,0 +1,56 @@
+name: Ilha Assistente (APK Android)
+
+on:
+  push:
+    paths:
+      - "dynamic-island-android/**"
+      - ".github/workflows/ilha-assistente-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dynamic-island-android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Compilar APK
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk IlhaAssistente.apk
+
+      - name: Guardar APK no run
+        uses: actions/upload-artifact@v4
+        with:
+          name: IlhaAssistente
+          path: dynamic-island-android/IlhaAssistente.apk
+
+      # Link fixo para baixar direto no celular:
+      # https://github.com/<dono>/<repo>/releases/tag/ilha-assistente
+      - name: Publicar no release "ilha-assistente"
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ilha-assistente
+          name: Ilha Assistente (APK mais recente)
+          prerelease: true
+          make_latest: false
+          overwrite_files: true
+          body: |
+            APK da Ilha Assistente gerado automaticamente a partir do commit ${{ github.sha }} (branch ${{ github.ref_name }}).
+            Baixe o arquivo IlhaAssistente.apk abaixo pelo celular e instale.
+          files: dynamic-island-android/IlhaAssistente.apk
