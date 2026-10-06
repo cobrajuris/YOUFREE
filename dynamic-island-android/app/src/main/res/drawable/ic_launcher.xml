@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Fundo: preto com brilho índigo -->
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="40"
+                android:centerY="50"
+                android:gradientRadius="80"
+                android:startColor="#FF2A1B52"
+                android:endColor="#FF000000" />
+        </aapt:attr>
+    </path>
+    <!-- Orbe da assistente -->
+    <path android:pathData="M44,54m-19,0a19,19 0,1 1,38 0a19,19 0,1 1,-38 0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="27"
+                android:startY="37"
+                android:endX="61"
+                android:endY="71">
+                <item android:offset="0" android:color="#FFFF375F" />
+                <item android:offset="0.45" android:color="#FFBF5AF2" />
+                <item android:offset="0.8" android:color="#FF0A84FF" />
+                <item android:offset="1" android:color="#FF64D2FF" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Brilho de vidro no orbe -->
+    <path android:pathData="M44,46m-13,0a13,9 0,1 1,26 0a13,9 0,1 1,-26 0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="44"
+                android:startY="37"
+                android:endX="44"
+                android:endY="55"
+                android:startColor="#66FFFFFF"
+                android:endColor="#00FFFFFF" />
+        </aapt:attr>
+    </path>
+    <!-- Ilha lateral -->
+    <path
+        android:fillColor="#FF000000"
+        android:strokeColor="#FF3A3A3C"
+        android:strokeWidth="1"
+        android:pathData="M79,24h12a6,6 0,0 1,6 6v48a6,6 0,0 1,-6 6h-12a6,6 0,0 1,-6 -6v-48a6,6 0,0 1,6 -6z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M81,33h8a1.5,1.5 0,0 1,0 3h-8a1.5,1.5 0,0 1,0 -3zM82,44h6a1.5,1.5 0,0 1,0 3h-6a1.5,1.5 0,0 1,0 -3zM82,55h6a1.5,1.5 0,0 1,0 3h-6a1.5,1.5 0,0 1,0 -3z" />
+    <path
+        android:fillColor="#FF30D158"
+        android:pathData="M81,66h8a1.5,1.5 0,0 1,0 3h-8a1.5,1.5 0,0 1,0 -3z" />
+</vector>

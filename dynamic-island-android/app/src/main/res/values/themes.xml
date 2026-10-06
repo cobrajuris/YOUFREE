@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Island" parent="android:Theme.Material.NoActionBar">
+        <item name="android:colorAccent">#0A84FF</item>
+        <item name="android:colorPrimary">#000000</item>
+        <item name="android:colorControlActivated">#0A84FF</item>
+        <item name="android:textColorHighlight">#550A84FF</item>
+        <item name="android:statusBarColor">#000000</item>
+        <item name="android:navigationBarColor">#000000</item>
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+
+    <style name="Theme.Island.Transparent" parent="android:Theme.Translucent.NoTitleBar">
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:colorAccent">#0A84FF</item>
+        <item name="android:colorControlActivated">#0A84FF</item>
+    </style>
+
+    <!-- Mostra o papel de parede do celular atrás da tela de bloqueio -->
+    <style name="Theme.Island.Lock" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowShowWallpaper">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:colorAccent">#0A84FF</item>
+    </style>
+</resources>
