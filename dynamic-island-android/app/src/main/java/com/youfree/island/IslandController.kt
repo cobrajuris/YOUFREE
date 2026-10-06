@@ -105,12 +105,22 @@ class IslandController(private val ctx: Context, private val windowType: Int) {
     private fun screenW(): Int = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) wm.currentWindowMetrics.bounds.width() else ctx.resources.displayMetrics.widthPixels
     private fun screenH(): Int = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) wm.currentWindowMetrics.bounds.height() else ctx.resources.displayMetrics.heightPixels
 
-    private fun pillH() = max(dp(34), holeH + dp(12))
-    private fun pillTop() = (holeCy - pillH() / 2).coerceAtLeast(dp(3))
-    private fun idleW() = max(dp(104), holeW + dp(56))
-    private fun compactW() = min(screenW() - dp(32), dp(246))
-    private fun expandedW() = min(screenW() - dp(12), dp(440))
-    private fun gap() = holeW + dp(26) // área livre em volta da câmera
+    /** Pequena (padrão) / média / grande, escolhido em Ajustes → Aparência. */
+    private fun scale(): Float = when (prefs.islandSize) {
+        0 -> 0.82f
+        2 -> 1.15f
+        else -> 1f
+    }
+    private fun sdp(v: Int) = dp((v * scale()).roundToInt())
+
+    // Proporções do iPhone: pílula baixinha, só um pouco maior que a câmera.
+    private fun pillH() = max(sdp(32), holeH + sdp(10))
+    private fun pillTop() = (holeCy - pillH() / 2).coerceAtLeast(dp(2))
+    private fun idleW() = max(sdp(92), holeW + sdp(52))
+    private fun compactW() = min(screenW() - dp(48), sdp(232))
+    private fun expandedW() = min(screenW() - dp(20), dp(384))
+    private fun expandedRadius(h: Int) = min(dp(34).toFloat(), h / 2f)
+    private fun gap() = holeW + sdp(20) // área livre em volta da câmera
     private fun xFor(w: Int): Int {
         val margin = dp(6)
         return (holeCx - w / 2).coerceIn(margin, max(margin, screenW() - w - margin))
@@ -618,7 +628,7 @@ class IslandController(private val ctx: Context, private val windowType: Int) {
         val content = buildExpanded(kind)
         val w = expandedW()
         val h = measure(content, w)
-        show(content, "exp:$kind:${SystemClock.uptimeMillis()}", w, h, min(dp(42).toFloat(), h / 2f))
+        show(content, "exp:$kind:${SystemClock.uptimeMillis()}", w, h, expandedRadius(h))
         scheduleCollapse(
             when (kind) {
                 Kind.VOICE -> if (busy) 60_000 else 12_000
@@ -669,7 +679,7 @@ class IslandController(private val ctx: Context, private val windowType: Int) {
         val w = expandedW()
         val h = measure(content, w)
         content.layoutParams = FrameLayout.LayoutParams(w, h, Gravity.TOP or Gravity.START)
-        animateTo(w, h, min(dp(42).toFloat(), h / 2f))
+        animateTo(w, h, expandedRadius(h))
     }
 
     private fun measure(view: View, width: Int): Int {
@@ -773,7 +783,7 @@ class IslandController(private val ctx: Context, private val windowType: Int) {
     private fun cameraRow(width: Int, height: Int): CameraRow = CameraRow(ctx).apply {
         cameraX = holeCx - xFor(width)
         gap = gap()
-        sidePadding = dp(12)
+        sidePadding = sdp(10)
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, height)
     }
 
@@ -785,8 +795,8 @@ class IslandController(private val ctx: Context, private val windowType: Int) {
             Kind.TIMER -> {
                 val t = Timers.primary()
                 val ringing = Timers.ringing != null
-                val lead = Ui.iconTile(ctx, R.drawable.ic_timer, if (ringing) Ui.RED else Ui.ORANGE, 22, 14)
-                val trail = Ui.text(ctx, 16f, if (ringing) Ui.RED else Ui.ORANGE, value = t?.let { Timers.format(it.leftMs()) } ?: "", weight = Ui.Weight.DISPLAY_SEMIBOLD).apply {
+                val lead = Ui.iconTile(ctx, R.drawable.ic_timer, if (ringing) Ui.RED else Ui.ORANGE, 18, 12)
+                val trail = Ui.text(ctx, 14f * scale(), if (ringing) Ui.RED else Ui.ORANGE, value = t?.let { Timers.format(it.leftMs()) } ?: "", weight = Ui.Weight.DISPLAY_SEMIBOLD).apply {
                     fontFeatureSettings = "tnum"
                 }
                 row.set(lead, trail)
@@ -797,26 +807,26 @@ class IslandController(private val ctx: Context, private val windowType: Int) {
                     setImageDrawable(artDrawable())
                     scaleType = ImageView.ScaleType.CENTER_CROP
                     Ui.clipRound(this, Ui.dpf(ctx, 6f), Ui.SURFACE)
-                    layoutParams = ViewGroup.LayoutParams(dp(22), dp(22))
+                    layoutParams = ViewGroup.LayoutParams(sdp(20), sdp(20))
                 }
                 val wave = WaveView(ctx).apply {
                     color = artColor()
                     active = true
-                    layoutParams = ViewGroup.LayoutParams(dp(22), dp(16))
+                    layoutParams = ViewGroup.LayoutParams(sdp(18), sdp(13))
                 }
                 row.set(art, wave)
             }
             Kind.EVENT -> {
                 val e = nextEvent
                 val color = e?.color?.takeIf { it != 0 }?.let { it or 0xFF000000.toInt() } ?: Ui.RED
-                val lead = Ui.iconTile(ctx, R.drawable.ic_calendar, color, 22, 13)
-                val trail = Ui.text(ctx, 14f, color, value = minutesUntil(e), weight = Ui.Weight.SEMIBOLD)
+                val lead = Ui.iconTile(ctx, R.drawable.ic_calendar, color, 18, 11)
+                val trail = Ui.text(ctx, 13f * scale(), color, value = minutesUntil(e), weight = Ui.Weight.SEMIBOLD)
                 row.set(lead, trail)
                 updater = { trail.text = minutesUntil(nextEvent) }
             }
             Kind.CHARGING -> {
-                val lead = Ui.icon(ctx, R.drawable.ic_flash, Ui.GREEN).apply { layoutParams = ViewGroup.LayoutParams(dp(18), dp(18)) }
-                val trail = Ui.text(ctx, 15f, Ui.GREEN, value = "${status.batteryPercent()}%", weight = Ui.Weight.DISPLAY_SEMIBOLD)
+                val lead = Ui.icon(ctx, R.drawable.ic_flash, Ui.GREEN).apply { layoutParams = ViewGroup.LayoutParams(sdp(16), sdp(16)) }
+                val trail = Ui.text(ctx, 13f * scale(), Ui.GREEN, value = "${status.batteryPercent()}%", weight = Ui.Weight.DISPLAY_SEMIBOLD)
                 row.set(lead, trail)
             }
             else -> row.set(null, null)
@@ -845,12 +855,12 @@ class IslandController(private val ctx: Context, private val windowType: Int) {
             orientation = LinearLayout.VERTICAL
             isClickable = false
         }
-        val row = cameraRow(w, max(topHeight, pillH())).apply { sidePadding = dp(18) }
+        val row = cameraRow(w, max(topHeight, pillH())).apply { sidePadding = dp(16) }
         row.set(leading, trailing)
         outer.addView(row)
         val body = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(8), dp(20), dp(20))
+            setPadding(dp(18), dp(6), dp(18), dp(18))
         }
         outer.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         return outer to body

@@ -99,6 +99,19 @@ class MainActivity : Activity() {
             ),
         ), lp(top = 28))
 
+        // ---------------- Aparência ----------------
+        val sizes = Segmented(this, listOf("Pequena", "Média", "Grande"), prefs.islandSize) { i ->
+            prefs.islandSize = i
+            IslandHub.controller?.applyPrefs()
+        }
+        val appearance = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(16))
+            addView(Ui.text(this@MainActivity, 15f, Color.WHITE, value = "Tamanho da ilha"))
+            addView(sizes, lp(top = 10, h = dp(34)))
+        }
+        column.addView(group("Aparência", "A ilha se centraliza sozinha na câmera do seu celular. Ajuste o tamanho e veja na hora.", listOf(appearance)), lp(top = 28))
+
         // ---------------- "Oi assistente" ----------------
         val modelRow = row(R.drawable.ic_sparkle, Ui.INDIGO, "Voz em português", "…", chevron()) { downloadModel() }
         modelStatus = ((modelRow as LinearLayout).getChildAt(1) as LinearLayout).getChildAt(1) as TextView

@@ -41,6 +41,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("event_reminders", true)
         set(value) = sp.edit().putBoolean("event_reminders", value).apply()
 
+    /** Tamanho da ilha: 0 = pequena (padrão), 1 = média, 2 = grande. */
+    var islandSize: Int
+        get() = sp.getInt("island_size", 0)
+        set(value) = sp.edit().putInt("island_size", value.coerceIn(0, 2)).apply()
+
     /** Escutar "Oi assistente" com a tela ligada (precisa baixar o modelo de voz uma vez). */
     var wakeWord: Boolean
         get() = sp.getBoolean("wake_word", true)

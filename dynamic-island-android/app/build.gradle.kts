@@ -11,8 +11,8 @@ android {
         applicationId = "com.youfree.island"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "6.0"
+        versionCode = 7
+        versionName = "6.1"
         // Vosk ("Oi assistente") traz bibliotecas nativas; só as de celulares reais.
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
