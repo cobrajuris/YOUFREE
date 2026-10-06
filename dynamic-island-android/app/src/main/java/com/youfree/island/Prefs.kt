@@ -41,6 +41,16 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("event_reminders", true)
         set(value) = sp.edit().putBoolean("event_reminders", value).apply()
 
+    /** Tela de bloqueio premium (relógio, agenda e prévias de mensagens sobre o bloqueio do sistema). */
+    var lockScreen: Boolean
+        get() = sp.getBoolean("lock_screen", true)
+        set(value) = sp.edit().putBoolean("lock_screen", value).apply()
+
+    /** Na tela de bloqueio, mostrar só quem mandou, sem o texto da mensagem. */
+    var lockHideContent: Boolean
+        get() = sp.getBoolean("lock_hide_content", false)
+        set(value) = sp.edit().putBoolean("lock_hide_content", value).apply()
+
     /** true = borda direita da tela; false = borda esquerda. */
     var rightSide: Boolean
         get() = sp.getBoolean("right_side", true)

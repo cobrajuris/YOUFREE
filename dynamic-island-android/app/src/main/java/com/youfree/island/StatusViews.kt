@@ -77,3 +77,38 @@ class BatteryView(context: Context) : View(context) {
         canvas.drawRoundRect(rect, h * 0.12f, h * 0.12f, fill)
     }
 }
+
+/** Anel de progresso (bateria nos widgets da tela de bloqueio). */
+class RingView(context: Context) : View(context) {
+    private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = 0x33FFFFFF
+        strokeCap = Paint.Cap.ROUND
+    }
+    private val arc = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
+    private val rect = RectF()
+
+    var percent = 0
+        set(value) {
+            field = value.coerceIn(0, 100)
+            invalidate()
+        }
+    var color = 0xFFFFFFFF.toInt()
+        set(value) {
+            field = value
+            invalidate()
+        }
+
+    override fun onDraw(canvas: Canvas) {
+        val sw = width * 0.09f
+        track.strokeWidth = sw
+        arc.strokeWidth = sw
+        arc.color = color
+        rect.set(sw / 2, sw / 2, width - sw / 2, height - sw / 2)
+        canvas.drawArc(rect, 0f, 360f, false, track)
+        canvas.drawArc(rect, -90f, 360f * percent / 100f, false, arc)
+    }
+}

@@ -17,6 +17,10 @@ class NotificationWatcher : NotificationListenerService() {
         if (IslandHub.notificationWatcher === this) IslandHub.notificationWatcher = null
     }
 
+    override fun onNotificationRemoved(sbn: StatusBarNotification) {
+        IslandHub.removeNotification(sbn.key)
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         if (sbn.packageName == packageName) return
         val n = sbn.notification
@@ -44,6 +48,7 @@ class NotificationWatcher : NotificationListenerService() {
             icon = appInfo?.let { pm.getApplicationIcon(it) },
             contentIntent = n.contentIntent,
             time = sbn.postTime,
+            key = sbn.key,
         )
         IslandHub.addNotification(info)
         IslandHub.controller?.showNotification(info)

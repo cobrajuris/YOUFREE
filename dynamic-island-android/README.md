@@ -14,6 +14,22 @@ Uma "ilha" presa na **borda da tela** de qualquer Android 8+, que também é sua
   - **Aviso de compromisso** 10 minutos antes de cada evento (também falado).
   - **Assistente:** o que você falou e a resposta.
 
+## Tela de bloqueio premium
+
+Quando a tela apaga, a ilha prepara uma tela de bloqueio própria que aparece **por cima** do
+bloqueio do Android (como apps de despertador). Ela **não substitui** a segurança: para abrir
+o celular continua sendo preciso o PIN, a digital ou o rosto.
+
+- Relógio grande com a data, sobre o seu papel de parede.
+- Widgets: anel de bateria e o próximo compromisso.
+- Calendário da semana (hoje em vermelho, bolinha nos dias com compromisso) e a agenda de hoje.
+- **Só prévias das mensagens**: quem mandou e uma linha do texto. Dá para esconder o texto também.
+- Lanterna e câmera nos cantos, "Deslize para cima para abrir".
+- Desbloqueou pela digital ou pelo rosto? Ela sai da frente sozinha.
+
+Liga e desliga em **Ajustes → Tela de bloqueio**. A ilha da borda não aparece sobre o
+bloqueio (o Android não permite janelas flutuantes ali); é essa tela que cumpre esse papel.
+
 ## Design
 
 Inspirado no modo escuro da Apple:
@@ -96,5 +112,6 @@ O workflow `.github/workflows/ilha-assistente-apk.yml` compila e publica o APK a
 | `NotificationWatcher.kt` | Mensagens e controle de música |
 | `VoiceActivity.kt` | Escuta a voz / barra de digitar |
 | `Ui.kt` / `Components.kt` | Sistema de design: cores, fontes, molas, barras, botões, orbe, interruptor |
+| `LockActivity.kt` | Tela de bloqueio premium |
 | `MainActivity.kt` | Tela de configuração |
 | `BootReceiver.kt` | Religa a ilha ao reiniciar |

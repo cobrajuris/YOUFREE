@@ -70,6 +70,18 @@
             android:theme="@style/Theme.Island.Transparent"
             android:windowSoftInputMode="adjustResize|stateHidden" />
 
+        <!-- Tela de bloqueio premium: aparece por cima do bloqueio do sistema, sem substituí-lo -->
+        <activity
+            android:name=".LockActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:noHistory="false"
+            android:screenOrientation="portrait"
+            android:showWhenLocked="true"
+            android:taskAffinity="com.youfree.island.lock"
+            android:theme="@style/Theme.Island.Lock" />
+
         <!-- A ilha: janela sobre outros apps, presa na borda da tela -->
         <service
             android:name=".IslandService"

@@ -134,6 +134,20 @@ class MainActivity : Activity() {
             switchRow(R.drawable.ic_calendar, Ui.ORANGE, "Avisar antes dos compromissos", prefs.eventReminders) { prefs.eventReminders = it },
         )), lp(top = 20))
 
+        // ---------------- Tela de bloqueio ----------------
+        column.addView(group(
+            "Tela de bloqueio",
+            "Mostra relógio, agenda da semana e só prévias das mensagens por cima do bloqueio. " +
+                "Seu PIN, digital ou rosto continuam protegendo o celular: deslize para cima para desbloquear.",
+            listOf(
+                switchRow(R.drawable.ic_lock, Ui.INDIGO, "Tela de bloqueio premium", prefs.lockScreen) { prefs.lockScreen = it },
+                switchRow(R.drawable.ic_shield, Ui.GRAY, "Esconder texto das mensagens", prefs.lockHideContent) { prefs.lockHideContent = it },
+                row(R.drawable.ic_sparkle, Ui.PURPLE, "Ver como fica", null, chevron()) {
+                    startActivity(Intent(this, LockActivity::class.java))
+                },
+            ),
+        ), lp(top = 28))
+
         // ---------------- Dicas ----------------
         val tips = listOf(
             "Toque na alcinha da borda, ou puxe para dentro, para abrir.",

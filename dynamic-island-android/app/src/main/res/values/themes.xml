@@ -16,4 +16,14 @@
         <item name="android:colorAccent">#0A84FF</item>
         <item name="android:colorControlActivated">#0A84FF</item>
     </style>
+
+    <!-- Mostra o papel de parede do celular atrás da tela de bloqueio -->
+    <style name="Theme.Island.Lock" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowShowWallpaper">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:colorAccent">#0A84FF</item>
+    </style>
 </resources>

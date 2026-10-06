@@ -5,8 +5,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.content.res.Configuration
 import android.graphics.drawable.Icon
@@ -22,6 +24,14 @@ class IslandService : Service() {
 
     private var controller: IslandController? = null
 
+    /** Tela apagou: prepara a tela de bloqueio premium para quando acender. */
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == Intent.ACTION_SCREEN_OFF) LockActivity.showIfEnabled(context)
+        }
+    }
+    private var screenReceiverRegistered = false
+
     override fun onCreate() {
         super.onCreate()
         startAsForeground()
@@ -33,6 +43,9 @@ class IslandService : Service() {
             it.attach()
             IslandHub.controller = it
         }
+        // SCREEN_OFF só chega para receivers registrados em código.
+        registerReceiver(screenReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
+        screenReceiverRegistered = true
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -50,6 +63,8 @@ class IslandService : Service() {
     }
 
     override fun onDestroy() {
+        if (screenReceiverRegistered) unregisterReceiver(screenReceiver)
+        screenReceiverRegistered = false
         controller?.detach()
         if (IslandHub.controller === controller) IslandHub.controller = null
         controller = null

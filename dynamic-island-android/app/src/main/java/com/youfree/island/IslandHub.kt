@@ -13,6 +13,7 @@ data class NotificationInfo(
     val icon: Drawable?,
     val contentIntent: PendingIntent?,
     val time: Long,
+    val key: String = "",
 )
 
 /**
@@ -29,6 +30,10 @@ object IslandHub {
 
     /** Últimas notificações, mais recente primeiro. */
     val recent = ArrayDeque<NotificationInfo>()
+
+    fun removeNotification(key: String) {
+        recent.removeAll { it.key == key }
+    }
 
     fun addNotification(info: NotificationInfo) {
         recent.removeAll { it.packageName == info.packageName && it.title == info.title }
