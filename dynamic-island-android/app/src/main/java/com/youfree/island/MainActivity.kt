@@ -94,8 +94,14 @@ class MainActivity : Activity() {
         ), lp(top = 28))
 
         // ---------------- Aparência ----------------
-        val segmented = Segmented(this, listOf("Esquerda", "Direita"), if (prefs.rightSide) 1 else 0) { i ->
-            prefs.rightSide = i == 1
+        val current = when {
+            prefs.islandOnTop -> 0
+            prefs.rightSide -> 2
+            else -> 1
+        }
+        val segmented = Segmented(this, listOf("Topo", "Esquerda", "Direita"), current) { i ->
+            prefs.islandOnTop = i == 0
+            if (i > 0) prefs.rightSide = i == 2
             IslandHub.controller?.applyPrefs()
         }
         val height = PillSlider(this, R.drawable.ic_updown).apply {
@@ -108,12 +114,12 @@ class MainActivity : Activity() {
         val appearance = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(14), dp(16), dp(16))
-            addView(Ui.text(this@MainActivity, 15f, Color.WHITE, value = "Borda da tela"))
+            addView(Ui.text(this@MainActivity, 15f, Color.WHITE, value = "Posição da ilha"))
             addView(segmented, lp(top = 10, h = dp(34)))
-            addView(Ui.text(this@MainActivity, 15f, Color.WHITE, value = "Altura na tela"), lp(top = 18))
+            addView(Ui.text(this@MainActivity, 15f, Color.WHITE, value = "Altura na borda (só nas laterais)"), lp(top = 18))
             addView(height, lp(top = 10, h = dp(44)))
         }
-        column.addView(group("Aparência", "Você também pode arrastar a alcinha para cima e para baixo direto na tela.", listOf(appearance)), lp(top = 28))
+        column.addView(group("Aparência", "No topo, a ilha se ajusta sozinha à câmera do seu celular. Toque ou puxe ela para baixo para abrir; segure para falar. Nas laterais, arraste a alcinha para mudar a altura.", listOf(appearance)), lp(top = 28))
 
         // ---------------- Assistente ----------------
         column.addView(group(

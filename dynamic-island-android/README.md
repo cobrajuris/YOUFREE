@@ -14,6 +14,24 @@ Uma "ilha" presa na **borda da tela** de qualquer Android 8+, que também é sua
   - **Aviso de compromisso** 10 minutos antes de cada evento (também falado).
   - **Assistente:** o que você falou e a resposta.
 
+## Ilha no topo, em volta da câmera (padrão)
+
+Como no iPhone: um bloco preto preso no topo da tela que **envolve a câmera frontal**.
+O app lê a posição exata do furo da câmera do seu celular e centraliza e dimensiona a ilha
+sozinho.
+
+- **Em repouso:** só um pouco maior que a câmera, com os cantos de baixo arredondados.
+- **Ao vivo:** quando chega mensagem (ícone do app à esquerda, bolinha azul à direita) ou tem
+  música tocando (capa à esquerda, ondas à direita), ela se alarga para os dois lados da câmera.
+- **Toque ou puxe para baixo** para abrir o painel: hora grande, bateria e sinal, Wi-Fi,
+  Bluetooth, Lanterna, Vibrar, barras de brilho e volume, próximo compromisso, música e
+  "Falar com a assistente". **Segure** para falar direto.
+- Mensagens e avisos descem da câmera como um cartão.
+
+O Android deixa a barra de status por cima de janelas flutuantes, então a ilha desce um
+pouquinho abaixo dela: é essa parte de baixo que recebe o toque.
+Também dá para voltar a usar a ilha nas bordas laterais em Ajustes → Aparência.
+
 ## Tela de bloqueio premium
 
 Quando a tela apaga, a ilha prepara uma tela de bloqueio própria que aparece **por cima** do

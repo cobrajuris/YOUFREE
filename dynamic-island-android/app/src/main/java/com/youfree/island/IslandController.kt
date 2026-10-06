@@ -13,6 +13,7 @@ import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.media.MediaMetadata
@@ -52,7 +53,7 @@ import kotlin.math.roundToInt
 class IslandController(private val ctx: Context) {
 
     private enum class Mode { TAB, DOCK, CARD }
-    private enum class Card { NONE, NOTIFICATION, CALENDAR, CONTROLS, MUSIC, ASSISTANT, EVENT_SOON, INFO }
+    private enum class Card { NONE, HUB, NOTIFICATION, CALENDAR, CONTROLS, MUSIC, ASSISTANT, EVENT_SOON, INFO }
 
     private val prefs = Prefs(ctx)
     private val wm = ctx.getSystemService(WindowManager::class.java)!!
@@ -68,6 +69,15 @@ class IslandController(private val ctx: Context) {
     private var busy = false // ouvindo ou pensando: não esconder sozinha
     private var unread = false
     private var rightSide = prefs.rightSide
+    private var onTop = prefs.islandOnTop
+
+    // Câmera frontal (furo na tela), em pixels. Preenchido por computeCutout().
+    private var holeCx = 0
+    private var holeW = 0
+    private var holeBottom = 0
+    private var statusBarH = 0
+    private var liveKey = ""
+    private var lastNotification: NotificationInfo? = null
 
     // ---------- Medidas ----------
     private fun dp(v: Int) = Ui.dp(ctx, v)
@@ -81,6 +91,11 @@ class IslandController(private val ctx: Context) {
     private val root = FrameLayout(ctx)
     private val tabLayer = FrameLayout(ctx)
     private val tabIndicator = View(ctx)
+    // Conteúdo "ao vivo" dos dois lados da câmera (ilha no topo): ex. capa da música | ondas.
+    private val topRow = LinearLayout(ctx)
+    private val topLeading = FrameLayout(ctx)
+    private val topGap = View(ctx)
+    private val topTrailing = FrameLayout(ctx)
     private val dockLayer = LinearLayout(ctx)
     private val cardLayer = FrameLayout(ctx)
 
@@ -126,6 +141,12 @@ class IslandController(private val ctx: Context) {
     ).apply {
         title = "Ilha"
         x = -hidden
+        // Deixa desenhar na faixa da câmera frontal.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
     }
 
     private var sizeAnimator: ValueAnimator? = null
@@ -187,8 +208,9 @@ class IslandController(private val ctx: Context) {
 
     fun attach() {
         if (attached) return
+        computeCutout()
         applySide()
-        params.y = tabY()
+        params.y = if (onTop) -hidden else tabY()
         wm.addView(root, params)
         attached = true
         val filter = IntentFilter().apply {
@@ -202,6 +224,12 @@ class IslandController(private val ctx: Context) {
         }
         refreshMedia()
         onConfigurationChanged(ctx.resources.configuration)
+        // No Android 9 e 10 a posição da câmera só é conhecida depois que a janela entra na tela.
+        root.post {
+            val before = holeCx to holeBottom
+            computeCutout()
+            if (attached && mode == Mode.TAB && before != (holeCx to holeBottom)) showTab()
+        }
         main.postDelayed(reminderTick, 5_000)
         showInfo(R.drawable.ic_sparkle, Ui.INDIGO, prefs.assistantName, "Estou aqui na borda. Toque na alcinha para abrir.")
     }
@@ -233,15 +261,19 @@ class IslandController(private val ctx: Context) {
     fun onConfigurationChanged(config: Configuration) {
         // Na horizontal (vídeos, jogos) a ilha some para não atrapalhar.
         root.visibility = if (config.orientation == Configuration.ORIENTATION_LANDSCAPE) View.GONE else View.VISIBLE
+        computeCutout()
         if (attached) showTab()
     }
 
     /** Reaplica lado e posição depois de mudar as configurações. */
     fun applyPrefs() {
         rightSide = prefs.rightSide
+        onTop = prefs.islandOnTop
+        computeCutout()
         applySide()
         if (attached) {
-            params.y = tabY()
+            params.x = -hidden
+            params.y = if (onTop) -hidden else tabY()
             wm.updateViewLayout(root, params)
             showTab()
         }
@@ -253,6 +285,8 @@ class IslandController(private val ctx: Context) {
 
     fun showNotification(info: NotificationInfo) {
         if (!prefs.showNotifications) return
+        lastNotification = info
+        if (onTop) unread = true
         if (mode == Mode.CARD && card != Card.NOTIFICATION && card != Card.INFO) {
             unread = true // a pessoa está usando outro cartão: só marca na alcinha
             updateTabIndicator()
@@ -409,6 +443,7 @@ class IslandController(private val ctx: Context) {
     private fun onMediaChanged() {
         if (!attached) return
         updateTabIndicator()
+        if (mode == Mode.TAB && onTop && liveKindKey() != liveKey) showTab()
         dockMusicRow?.visibility = if (media?.metadata != null) View.VISIBLE else View.GONE
         if (mode == Mode.CARD && card == Card.MUSIC) {
             musicPlayIcon?.setImageResource(if (isMusicPlaying) R.drawable.ic_pause else R.drawable.ic_play)
@@ -452,11 +487,20 @@ class IslandController(private val ctx: Context) {
         asstStatus = null
         asstOrb = null
         updateTabIndicator()
-        transitionTo(Mode.TAB, tabW, tabH)
+        if (onTop) {
+            fillTopRow()
+            transitionTo(Mode.TAB, topTabWidth(), topTabHeight())
+        } else {
+            transitionTo(Mode.TAB, tabW, tabH)
+        }
     }
 
     private fun showDock() {
         unread = false
+        if (onTop) {
+            showHub()
+            return
+        }
         card = Card.NONE
         refreshDock()
         val h = measure(dockLayer, dockW)
@@ -519,12 +563,22 @@ class IslandController(private val ctx: Context) {
             layer.visibility = View.VISIBLE
             layer.alpha = 0f
             // Conteúdo entra deslizando de dentro da borda.
-            layer.translationX = Ui.dpf(ctx, 14f) * (if (rightSide) 1 else -1)
+            if (onTop) {
+                layer.translationY = -Ui.dpf(ctx, 12f)
+            } else {
+                layer.translationX = Ui.dpf(ctx, 14f) * (if (rightSide) 1 else -1)
+            }
         }
         layer.animate().cancel()
-        layer.animate().setStartDelay(if (target == Mode.TAB) 0 else 80).alpha(1f).translationX(0f)
+        layer.animate().setStartDelay(if (target == Mode.TAB) 0 else 80).alpha(1f).translationX(0f).translationY(0f)
             .setDuration(420).setInterpolator(Ui.SPRING_SMOOTH).start()
-        animateWindow(hidden + visibleW, h, windowYFor(h))
+        if (onTop) {
+            // Presa no topo: o pedaço escondido fica acima da tela; os cantos de baixo arredondam.
+            val radius = if (target == Mode.TAB) min(hidden.toFloat(), h * 0.62f) else hidden.toFloat()
+            animateWindow(visibleW, hidden + h, clampX(visibleW), -hidden, radius)
+        } else {
+            animateWindow(hidden + visibleW, h, -hidden, windowYFor(h), hidden.toFloat())
+        }
     }
 
     private fun currentLayer(): View = when (mode) {
@@ -535,7 +589,11 @@ class IslandController(private val ctx: Context) {
 
     /** As camadas ficam presas na borda da tela: o cartão "sai" de dentro da borda. */
     private fun layerParams(w: Int, h: Int) = FrameLayout.LayoutParams(w, h).apply {
-        gravity = Gravity.TOP or (if (rightSide) Gravity.END else Gravity.START)
+        gravity = Gravity.TOP or when {
+            onTop -> Gravity.CENTER_HORIZONTAL
+            rightSide -> Gravity.END
+            else -> Gravity.START
+        }
     }
 
     private fun measure(view: View, width: Int): Int {
@@ -546,20 +604,29 @@ class IslandController(private val ctx: Context) {
         return view.measuredHeight.coerceAtMost((screenHeight() * 0.8f).roundToInt())
     }
 
-    private fun animateWindow(w: Int, h: Int, y: Int) {
+    private var radius = hidden.toFloat()
+
+    private fun animateWindow(w: Int, h: Int, x: Int, y: Int, r: Float) {
         sizeAnimator?.cancel()
         val sw = params.width
         val sh = params.height
+        val sx = params.x
         val sy = params.y
-        if (sw == w && sh == h && sy == y) return
+        val sr = radius
+        if (sw == w && sh == h && sx == x && sy == y && sr == r) return
         sizeAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 560
             interpolator = Ui.SPRING_ISLAND
             addUpdateListener { a ->
                 val t = a.animatedValue as Float
+                val tc = t.coerceAtMost(1f)
                 params.width = (sw + (w - sw) * t).roundToInt().coerceAtLeast(1)
                 params.height = (sh + (h - sh) * t).roundToInt().coerceAtLeast(1)
-                params.y = (sy + (y - sy) * t.coerceAtMost(1f)).roundToInt()
+                params.x = (sx + (x - sx) * tc).roundToInt()
+                params.y = (sy + (y - sy) * tc).roundToInt()
+                radius = sr + (r - sr) * tc
+                background.cornerRadius = radius
+                root.invalidateOutline()
                 if (attached) wm.updateViewLayout(root, params)
             }
             start()
@@ -590,9 +657,110 @@ class IslandController(private val ctx: Context) {
         return (center - h / 2).coerceIn(minY, maxY)
     }
 
-    private fun cardWidth(): Int = min((screenWidth() * 0.88f).roundToInt(), dp(352))
+    private fun cardWidth(): Int =
+        if (onTop) min(screenWidth() - dp(16), dp(420)) else min((screenWidth() * 0.88f).roundToInt(), dp(352))
+
+    // ---------- Ilha no topo, em volta da câmera ----------
+
+    /** Descobre onde fica a câmera frontal (furo na tela) para centralizar e dimensionar a ilha. */
+    private fun computeCutout() {
+        val sw = screenWidth()
+        @Suppress("DiscouragedApi")
+        val sbId = ctx.resources.getIdentifier("status_bar_height", "dimen", "android")
+        statusBarH = if (sbId > 0) ctx.resources.getDimensionPixelSize(sbId) else dp(28)
+        var hole: Rect? = null
+        try {
+            val cutout = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                wm.currentWindowMetrics.windowInsets.displayCutout
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                root.rootWindowInsets?.displayCutout
+            } else {
+                null
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                hole = cutout?.boundingRects?.firstOrNull { it.top <= dp(4) && it.height() < screenHeight() / 5 }
+            }
+        } catch (_: Exception) {
+        }
+        if (hole != null && !hole.isEmpty) {
+            holeCx = hole.centerX()
+            holeW = hole.width().coerceAtMost(dp(140))
+            holeBottom = hole.bottom
+        } else {
+            holeCx = sw / 2
+            holeW = dp(26)
+            holeBottom = statusBarH
+        }
+    }
+
+    /** Desce um pouco abaixo da barra de status: essa parte de baixo é a que recebe o toque. */
+    private fun topTabHeight(): Int = maxOf(holeBottom, statusBarH) + dp(14)
+
+    private fun topTabWidth(): Int {
+        val base = holeW + dp(44)
+        return if (liveKindKey().isEmpty()) base.coerceAtLeast(dp(84)) else holeW + dp(150)
+    }
+
+    /** Centraliza na câmera sem deixar sair da tela. */
+    private fun clampX(w: Int): Int {
+        val sw = screenWidth()
+        val offset = holeCx - sw / 2
+        val max = ((sw - w) / 2).coerceAtLeast(0)
+        return offset.coerceIn(-max, max)
+    }
+
+    /** Qual "atividade ao vivo" aparece dos lados da câmera. */
+    private fun liveKindKey(): String = when {
+        unread && lastNotification != null -> "msg:" + lastNotification?.packageName
+        isMusicPlaying -> "music:" + (media?.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: "")
+        else -> ""
+    }
+
+    private fun fillTopRow() {
+        liveKey = liveKindKey()
+        topLeading.removeAllViews()
+        topTrailing.removeAllViews()
+        val gapW = holeW + dp(16)
+        topGap.layoutParams = LinearLayout.LayoutParams(gapW, 1)
+        val size = (holeBottom - dp(6)).coerceIn(dp(18), dp(26))
+        when {
+            liveKey.startsWith("msg:") -> {
+                val info = lastNotification
+                topLeading.addView(Ui.appIcon(ctx, 22).apply { setImageDrawable(info?.icon) },
+                    FrameLayout.LayoutParams(size, size, Gravity.CENTER_VERTICAL or Gravity.START).apply { marginStart = dp(14) })
+                topTrailing.addView(View(ctx).apply { background = Ui.oval(Ui.BLUE) },
+                    FrameLayout.LayoutParams(dp(9), dp(9), Gravity.CENTER_VERTICAL or Gravity.END).apply { marginEnd = dp(18) })
+            }
+            liveKey.startsWith("music:") -> {
+                topLeading.addView(ImageView(ctx).apply {
+                    setImageDrawable(mediaArtwork())
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    Ui.clipRound(this, Ui.dpf(ctx, 6f), Ui.SURFACE)
+                }, FrameLayout.LayoutParams(size, size, Gravity.CENTER_VERTICAL or Gravity.START).apply { marginStart = dp(14) })
+                topTrailing.addView(WaveView(ctx).apply {
+                    color = Ui.GREEN
+                    active = true
+                }, FrameLayout.LayoutParams(dp(20), dp(14), Gravity.CENTER_VERTICAL or Gravity.END).apply { marginEnd = dp(16) })
+            }
+        }
+        // A linha fica na altura da câmera.
+        topRow.layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, maxOf(holeBottom, dp(24)), Gravity.TOP)
+    }
 
     private fun applySide() {
+        if (onTop) {
+            params.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            root.setPadding(0, hidden, 0, 0)
+            tabIndicator.visibility = View.GONE
+            topRow.visibility = View.VISIBLE
+            for (layer in listOf(tabLayer, dockLayer, cardLayer)) {
+                val lp = layer.layoutParams as? FrameLayout.LayoutParams ?: continue
+                layer.layoutParams = layerParams(lp.width, lp.height)
+            }
+            return
+        }
+        tabIndicator.visibility = View.VISIBLE
+        topRow.visibility = View.GONE
         params.gravity = Gravity.TOP or (if (rightSide) Gravity.END else Gravity.START)
         // O pedaço escondido fica do lado da borda; o conteúdo, do lado de dentro.
         root.setPadding(if (rightSide) 0 else hidden, 0, if (rightSide) hidden else 0, 0)
@@ -789,7 +957,10 @@ class IslandController(private val ctx: Context) {
         addView(row)
         val buttons = mutableListOf<View>()
         if (info.contentIntent != null) buttons.add(capsule("Abrir", Ui.ButtonStyle.PRIMARY) { openNotification(info.contentIntent) })
-        buttons.add(capsule("Fechar") { showTab() })
+        buttons.add(capsule("Fechar") {
+            unread = false
+            showTab()
+        })
         addView(buttonRow(*buttons.toTypedArray()), lp(16))
     }
 
@@ -898,11 +1069,144 @@ class IslandController(private val ctx: Context) {
         }
     }
 
+
+    // ----- Painel do topo (ilha expandida) -----
+
+    /** Ilha do topo aberta: hora, bateria, controles, próximo compromisso, música e assistente. */
+    private fun showHub() {
+        val box = cardBox()
+        val now = Date()
+
+        // Hora grande + data | bateria e rede
+        val head = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val left = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(Ui.text(ctx, 40f, Color.WHITE, value = SimpleDateFormat("HH:mm", ptBR).format(now), weight = Ui.Weight.DISPLAY).apply {
+                    letterSpacing = -0.03f
+                })
+                addView(Ui.text(ctx, 14f, Ui.SECONDARY, value = SimpleDateFormat("EEEE, d 'de' MMMM", ptBR).format(now).replaceFirstChar { it.uppercase(ptBR) },
+                    weight = Ui.Weight.MEDIUM), lp(4))
+            }
+            addView(left, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            val pct = status.batteryPercent()
+            val right = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.END
+                val batt = LinearLayout(ctx).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(Ui.text(ctx, 14f, Color.WHITE, value = "$pct%", weight = Ui.Weight.SEMIBOLD).apply {
+                        fontFeatureSettings = "tnum"
+                        setPadding(0, 0, dp(6), 0)
+                    })
+                    addView(BatteryView(ctx).apply {
+                        percent = pct
+                        charging = status.isCharging()
+                    }, LinearLayout.LayoutParams(dp(25), dp(12)))
+                }
+                addView(batt)
+                val net = LinearLayout(ctx).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(SignalView(ctx).apply { level = status.signalLevel() }, LinearLayout.LayoutParams(dp(15), dp(11)).apply { marginEnd = dp(6) })
+                    addView(Ui.icon(ctx, R.drawable.ic_wifi).apply { alpha = if (status.isWifi()) 1f else 0.3f }, LinearLayout.LayoutParams(dp(15), dp(15)))
+                }
+                addView(net, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
+            }
+            addView(right)
+        }
+        box.addView(head)
+
+        // Central de Controle
+        val controls = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        addControls(controls)
+        box.addView(controls, lp(18))
+
+        // Próximo compromisso
+        if (calendar.canRead()) {
+            val next = calendar.upcoming(days = 7, limit = 1).firstOrNull()
+            if (next != null) {
+                box.addView(sectionLabel("Próximo"), lp(18))
+                box.addView(eventRow(next, withDay = next.begin >= CalendarRepo.startOfDay(1)), lp(8))
+            }
+        }
+
+        // Música tocando
+        val meta = media?.metadata
+        if (meta != null) {
+            val music = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(10), dp(10), dp(6), dp(10))
+                background = Ui.rounded(Ui.SURFACE, Ui.dpf(ctx, 14f))
+                addView(ImageView(ctx).apply {
+                    setImageDrawable(mediaArtwork())
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    Ui.clipRound(this, Ui.dpf(ctx, 8f), Ui.ELEVATED)
+                }, LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(12) })
+                val texts = LinearLayout(ctx).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(Ui.text(ctx, 15f, Color.WHITE, value = meta.getString(MediaMetadata.METADATA_KEY_TITLE) ?: "Música", weight = Ui.Weight.SEMIBOLD).apply {
+                        isSingleLine = true
+                        ellipsize = TextUtils.TruncateAt.END
+                    })
+                    addView(Ui.text(ctx, 13f, Ui.SECONDARY, value = meta.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: "").apply {
+                        isSingleLine = true
+                        ellipsize = TextUtils.TruncateAt.END
+                    }, lp(3))
+                }
+                addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                addView(Ui.circle(ctx, if (isMusicPlaying) R.drawable.ic_pause else R.drawable.ic_play, 44, bg = Color.TRANSPARENT, iconDp = 28) {
+                    touched()
+                    playPause()
+                    main.postDelayed({ if (mode == Mode.CARD && card == Card.HUB) showHub() }, 350)
+                })
+                Ui.pressable(this) {
+                    touched()
+                    showMusicCard()
+                }
+            }
+            box.addView(music, lp(12))
+        }
+
+        // Ações
+        val orb = OrbView(ctx)
+        val talk = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(6), 0, dp(16), 0)
+            background = Ui.rounded(Ui.LABEL, Ui.dpf(ctx, 100f))
+            addView(orb, LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginEnd = dp(8) })
+            addView(Ui.text(ctx, 15f, Color.BLACK, value = "Falar com ${prefs.assistantName}", weight = Ui.Weight.SEMIBOLD).apply {
+                isSingleLine = true
+                ellipsize = TextUtils.TruncateAt.END
+            })
+            Ui.pressable(this) { startVoice() }
+        }
+        val actions = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(Ui.circle(ctx, R.drawable.ic_calendar, 44, iconDp = 20) {
+                touched()
+                showCalendarCard()
+            })
+            addView(talk, LinearLayout.LayoutParams(0, dp(44), 1f).apply {
+                marginStart = dp(10)
+                marginEnd = dp(10)
+            })
+            addView(Ui.circle(ctx, R.drawable.ic_settings, 44, iconDp = 20) { open(Intent(ctx, MainActivity::class.java)) })
+        }
+        box.addView(actions, lp(18))
+
+        showCard(Card.HUB, box, 9_000)
+    }
+
     // ----- Controles (estilo Central de Controle) -----
 
-    private fun showControlsCard() {
-        val box = cardBox()
-
+    /** Botões redondos (Wi-Fi, Bluetooth, Lanterna, Vibrar) e as barras de brilho e volume. */
+    private fun addControls(box: LinearLayout) {
         val tiles = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             weightSum = 4f
@@ -952,6 +1256,13 @@ class IslandController(private val ctx: Context) {
             onChange = { status.setVolumePercent((it * 100).roundToInt()) }
         }
         box.addView(volume, lp(10, h = dp(50)))
+    }
+
+
+    private fun showControlsCard() {
+        val box = cardBox()
+
+        addControls(box)
 
         // Rodapé: bateria e rede
         val pct = status.batteryPercent()
@@ -1172,6 +1483,7 @@ class IslandController(private val ctx: Context) {
     }
 
     private fun openNotification(intent: PendingIntent?) {
+        unread = false
         if (intent == null) return
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -1196,6 +1508,12 @@ class IslandController(private val ctx: Context) {
         root.clipToOutline = true
 
         tabLayer.addView(tabIndicator, FrameLayout.LayoutParams(dp(4), dp(38), Gravity.CENTER))
+        topRow.orientation = LinearLayout.HORIZONTAL
+        topRow.gravity = Gravity.CENTER_VERTICAL
+        topRow.addView(topLeading, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+        topRow.addView(topGap, LinearLayout.LayoutParams(dp(40), 1))
+        topRow.addView(topTrailing, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+        tabLayer.addView(topRow, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(28), Gravity.TOP))
         buildDock()
 
         for (layer in listOf(tabLayer, dockLayer, cardLayer)) {
@@ -1210,6 +1528,14 @@ class IslandController(private val ctx: Context) {
         var downY = 0f
         var startY = 0
         var dragging = false
+        var longPressed = false
+        val longPress = Runnable {
+            if (mode == Mode.TAB) {
+                longPressed = true
+                Ui.haptic(root, strong = true)
+                startVoice() // segurar a ilha = falar com a assistente
+            }
+        }
         root.setOnTouchListener { v, e ->
             when (e.actionMasked) {
                 MotionEvent.ACTION_OUTSIDE -> {
@@ -1221,13 +1547,23 @@ class IslandController(private val ctx: Context) {
                     downY = e.rawY
                     startY = params.y
                     dragging = false
+                    longPressed = false
                     touched()
+                    if (mode == Mode.TAB) main.postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
                     mode == Mode.TAB
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (mode != Mode.TAB) return@setOnTouchListener false
+                    if (mode != Mode.TAB || longPressed) return@setOnTouchListener false
                     val dy = e.rawY - downY
                     val dx = e.rawX - downX
+                    if (abs(dx) > slop || abs(dy) > slop) main.removeCallbacks(longPress)
+                    if (onTop) {
+                        if (dy > slop * 2) {
+                            Ui.haptic(v)
+                            showDock() // puxou a ilha para baixo
+                        }
+                        return@setOnTouchListener true
+                    }
                     val inward = if (rightSide) -dx else dx
                     if (!dragging && inward > slop * 2 && abs(dx) > abs(dy)) {
                         Ui.haptic(v)
@@ -1243,7 +1579,8 @@ class IslandController(private val ctx: Context) {
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (mode != Mode.TAB) return@setOnTouchListener false
+                    main.removeCallbacks(longPress)
+                    if (mode != Mode.TAB || longPressed) return@setOnTouchListener false
                     if (dragging) {
                         val top = dp(48)
                         val range = (screenHeight() - tabH - dp(96) - top).coerceAtLeast(1)
@@ -1254,7 +1591,10 @@ class IslandController(private val ctx: Context) {
                     }
                     true
                 }
-                else -> mode == Mode.TAB
+                else -> {
+                    if (e.actionMasked == MotionEvent.ACTION_CANCEL) main.removeCallbacks(longPress)
+                    mode == Mode.TAB
+                }
             }
         }
     }

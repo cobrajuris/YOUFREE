@@ -51,6 +51,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("lock_hide_content", false)
         set(value) = sp.edit().putBoolean("lock_hide_content", value).apply()
 
+    /** Ilha no topo, em volta da câmera frontal (como no iPhone). false = presa na borda lateral. */
+    var islandOnTop: Boolean
+        get() = sp.getBoolean("island_on_top", true)
+        set(value) = sp.edit().putBoolean("island_on_top", value).apply()
+
     /** true = borda direita da tela; false = borda esquerda. */
     var rightSide: Boolean
         get() = sp.getBoolean("right_side", true)
