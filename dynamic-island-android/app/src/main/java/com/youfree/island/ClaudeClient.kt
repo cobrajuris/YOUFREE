@@ -10,7 +10,10 @@ import com.anthropic.errors.RateLimitException
 import com.anthropic.errors.UnauthorizedException
 import com.anthropic.models.beta.messages.BetaOutputConfig
 import com.anthropic.models.beta.messages.BetaStopReason
+import com.anthropic.models.beta.messages.BetaUserLocation
+import com.anthropic.models.beta.messages.BetaWebSearchTool20260209
 import com.anthropic.models.beta.messages.MessageCreateParams
+import java.util.TimeZone
 
 /** Chamada ao Claude para perguntas que os comandos locais não resolvem. Bloqueante: use fora da thread principal. */
 class ClaudeClient(apiKey: String, private val model: String) {
@@ -19,10 +22,11 @@ class ClaudeClient(apiKey: String, private val model: String) {
 
     private val client: AnthropicClient = AnthropicOkHttpClient.builder().apiKey(apiKey).build()
 
-    fun reply(system: String, history: List<Turn>, userText: String): String {
+    /** [city]: cidade do usuário para buscas locais (clima etc.); vazio = não informar. */
+    fun reply(system: String, history: List<Turn>, userText: String, city: String = ""): String {
         val builder = MessageCreateParams.builder()
             .model(model)
-            .maxTokens(1024L)
+            .maxTokens(4096L)
             .system(system)
 
         if (model in MODELS_WITH_FALLBACKS) {
@@ -35,13 +39,34 @@ class ClaudeClient(apiKey: String, private val model: String) {
             builder.outputConfig(BetaOutputConfig.builder().effort(BetaOutputConfig.Effort.LOW).build())
         }
 
+        if (model in MODELS_WITH_WEB_SEARCH) {
+            // Busca na internet para clima, notícias, resultados de jogos, horários de lojas...
+            val search = BetaWebSearchTool20260209.builder().maxUses(3L)
+            val location = BetaUserLocation.builder()
+                .type(JsonValue.from("approximate"))
+                .country("BR")
+                .timezone(TimeZone.getDefault().id)
+            if (city.isNotBlank()) location.city(city)
+            search.userLocation(location.build())
+            builder.addTool(search.build())
+        }
+
         for (turn in history) {
             if (turn.fromUser) builder.addUserMessage(turn.text) else builder.addAssistantMessage(turn.text)
         }
         builder.addUserMessage(userText)
 
         val message = try {
-            client.beta().messages().create(builder.build())
+            var params = builder.build()
+            var result = client.beta().messages().create(params)
+            // A busca roda no servidor; se ele pausar no meio, reenviamos para continuar.
+            var continuations = 0
+            while (result.stopReason().orElse(null) == BetaStopReason.PAUSE_TURN && continuations < 3) {
+                params = params.toBuilder().addMessage(result).build()
+                result = client.beta().messages().create(params)
+                continuations++
+            }
+            result
         } catch (e: UnauthorizedException) {
             return "Sua chave da API do Claude é inválida. Confira nas configurações do app."
         } catch (e: PermissionDeniedException) {
@@ -68,6 +93,10 @@ class ClaudeClient(apiKey: String, private val model: String) {
 
     companion object {
         const val DEFAULT_MODEL = "claude-opus-5-5"
+        private val MODELS_WITH_WEB_SEARCH = setOf(
+            "claude-opus-5-5", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
+            "claude-sonnet-5-5", "claude-sonnet-5", "claude-sonnet-4-6",
+        )
         private val MODELS_WITH_FALLBACKS = setOf(
             "claude-opus-5-5", "claude-opus-5", "claude-fable-5-1", "claude-sonnet-5-5",
         )

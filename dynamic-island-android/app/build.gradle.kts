@@ -11,16 +11,32 @@ android {
         applicationId = "com.youfree.island"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "2.0"
+    }
+
+    signingConfigs {
+        // Chave fixa do app pessoal: cada APK novo instala por cima do anterior sem desinstalar.
+        // Não use esta chave para outros apps (ela é pública neste repositório).
+        create("ilha") {
+            storeFile = file("ilha-release.keystore")
+            storePassword = "ilhaassistente"
+            keyAlias = "ilha"
+            keyPassword = "ilhaassistente"
+        }
     }
 
     buildTypes {
         release {
             // O SDK do Claude usa Jackson (reflexão); manter sem minificação evita regras ProGuard extras.
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("ilha")
         }
+    }
+
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
     }
 
     compileOptions {

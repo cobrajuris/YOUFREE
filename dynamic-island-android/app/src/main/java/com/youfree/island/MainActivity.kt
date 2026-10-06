@@ -9,6 +9,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.text.Editable
@@ -28,13 +29,19 @@ import android.widget.TextView
 import android.widget.Toast
 import kotlin.math.roundToInt
 
-/** Tela de configuração: permissões, chave do Claude e ajustes de posição da ilha. */
+/** Tela de configuração: ligar a ilha, permissões, chave do Claude e posição. */
 class MainActivity : Activity() {
 
     private lateinit var prefs: Prefs
+    private lateinit var islandSwitch: Switch
+    private lateinit var overlayStatus: TextView
     private lateinit var micStatus: TextView
+    private lateinit var agendaStatus: TextView
     private lateinit var notifStatus: TextView
-    private lateinit var islandStatus: TextView
+    private lateinit var brightStatus: TextView
+    private lateinit var sideRight: Button
+    private lateinit var sideLeft: Button
+    private var updatingSwitch = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -50,91 +57,138 @@ class MainActivity : Activity() {
         })
 
         column.addView(text("Ilha Assistente", 28f, Color.WHITE, bold = true))
-        column.addView(text("Sua ilha dinâmica no Android: notificações, música e um assistente de voz em cima da câmera.", 15f, MUTED).apply {
+        column.addView(text("Uma ilha na borda da tela com hora, sinal, Wi-Fi, brilho, volume, bateria, agenda, mensagens e uma assistente de voz.", 15f, MUTED).apply {
             setPadding(0, dp(6), 0, dp(18))
         })
 
-        // ---------------- Passos ----------------
-        column.addView(section("1. Microfone"))
-        micStatus = status()
+        // ---------------- Ligar ----------------
+        @Suppress("DEPRECATION")
+        islandSwitch = Switch(this).apply {
+            text = "Ilha ligada"
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            setOnCheckedChangeListener { _, on -> if (!updatingSwitch) toggleIsland(on) }
+        }
+        column.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+            background = rounded(CARD)
+            addView(islandSwitch, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
+        })
+        column.addView(button("Testar a ilha") {
+            val c = IslandHub.controller
+            if (c == null) toast("Ligue a ilha primeiro.") else c.showDemo()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(10) }
+        })
+
+        // ---------------- Permissões ----------------
+        column.addView(section("1. Mostrar sobre outros apps (obrigatório)"))
+        overlayStatus = status()
         column.addView(card(
-            "Para conversar por voz com a ilha.",
-            micStatus,
-            button("Permitir microfone") {
-                requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 10)
+            "É o que deixa a ilha aparecer na borda da tela. Na lista, ache \"Ilha Assistente\" e ative.",
+            overlayStatus,
+            button("Permitir sobreposição") {
+                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
             },
         ))
 
-        column.addView(section("2. Notificações e música"))
+        column.addView(section("2. Microfone"))
+        micStatus = status()
+        column.addView(card(
+            "Para conversar por voz com a assistente.",
+            micStatus,
+            button("Permitir microfone") { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 10) },
+        ))
+
+        column.addView(section("3. Agenda e contatos"))
+        agendaStatus = status()
+        column.addView(card(
+            "Mostra seus compromissos, avisa 10 minutos antes, marca eventos por voz e liga ou manda WhatsApp para seus contatos.",
+            agendaStatus,
+            button("Permitir agenda e contatos") {
+                requestPermissions(
+                    arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR, Manifest.permission.READ_CONTACTS),
+                    11,
+                )
+            },
+        ))
+
+        column.addView(section("4. Mensagens e música (opcional)"))
         notifStatus = status()
         column.addView(card(
-            "Mostra mensagens novas na ilha e controla a música que estiver tocando (Spotify, YouTube Music, YouFree...).",
+            "Mostra as mensagens que chegam (WhatsApp, Instagram...) num cartão na borda e controla a música tocando.",
             notifStatus,
             button("Abrir acesso a notificações") {
                 startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
             },
         ))
-
-        column.addView(section("3. Ligar a ilha"))
-        islandStatus = status()
         column.addView(card(
-            "Em Acessibilidade, toque em \"Ilha Assistente\" e ative. É isso que desenha a ilha por cima da barra de status.",
-            islandStatus,
-            button("Abrir acessibilidade") {
-                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            },
-        ))
-
-        column.addView(card(
-            "A opção aparece cinza ou diz \"Configuração restrita\"? Isso acontece com apps instalados por APK no Android 13+. " +
-                "Abra as informações do app, toque nos ⋮ no canto de cima e escolha \"Permitir configurações restritas\". Depois volte ao passo 2 ou 3.",
+            "Se aparecer cinza ou \"Configuração restrita\": toque no botão abaixo, depois nos ⋮ no canto de cima e em " +
+                "\"Permitir configurações restritas\". Volte e ative de novo.",
             null,
             button("Abrir informações do app", primary = false) {
                 startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
             },
         ))
 
-        column.addView(button("Testar a ilha agora") {
-            val c = IslandHub.controller
-            if (c == null) toast("Ative a ilha no passo 3 primeiro.") else c.showDemo()
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(18) }
+        column.addView(section("5. Brilho (opcional)"))
+        brightStatus = status()
+        column.addView(card(
+            "Deixa a ilha e a assistente mudarem o brilho da tela.",
+            brightStatus,
+            button("Permitir mudar o brilho") {
+                startActivity(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:$packageName")))
+            },
+        ))
+
+        // ---------------- Posição ----------------
+        column.addView(section("Posição"))
+        sideRight = button("Borda direita", primary = prefs.rightSide) { setSide(true) }
+        sideLeft = button("Borda esquerda", primary = !prefs.rightSide) { setSide(false) }
+        column.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(sideLeft, LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginEnd = dp(8) })
+            addView(sideRight, LinearLayout.LayoutParams(0, dp(46), 1f))
+        })
+        column.addView(slider("Altura na tela", (prefs.positionY * 100).roundToInt()) {
+            prefs.positionY = it / 100f
+            IslandHub.controller?.applyPrefs()
+        })
+        column.addView(text("Dica: você também pode arrastar a alcinha para cima e para baixo.", 13f, MUTED).apply {
+            setPadding(0, dp(6), 0, 0)
         })
 
         // ---------------- Assistente ----------------
         column.addView(section("Assistente"))
         column.addView(label("Nome da assistente"))
         column.addView(input(prefs.assistantName, "Ilha") { prefs.assistantName = it })
-
+        column.addView(label("Sua cidade (para clima e notícias)"))
+        column.addView(input(prefs.city, "Ex.: São Paulo") { prefs.city = it })
         column.addView(label("Chave da API do Claude (opcional)"))
         column.addView(input(prefs.apiKey, "sk-ant-...", secret = true) { prefs.apiKey = it })
         column.addView(text(
-            "Sem chave, a ilha faz os comandos do celular (hora, bateria, lanterna, timer, alarme, música, abrir apps, ler notificações). " +
-                "Com a chave, ela responde qualquer pergunta. Crie em console.anthropic.com → API Keys. A chave fica só neste celular.",
+            "Sem chave, a assistente já faz os comandos do celular. Com a chave, responde qualquer pergunta e busca clima, " +
+                "notícias e resultados na internet. Crie em console.anthropic.com → API Keys (uso pago). A chave fica só neste celular.",
             13f, MUTED,
         ).apply { setPadding(0, dp(6), 0, 0) })
-
         column.addView(label("Modelo do Claude"))
         column.addView(input(prefs.model, ClaudeClient.DEFAULT_MODEL) { prefs.model = it })
 
         column.addView(switch("Falar as respostas em voz alta", prefs.speakReplies) { prefs.speakReplies = it })
-        column.addView(switch("Mostrar notificações na ilha", prefs.showNotifications) { prefs.showNotifications = it })
-
-        // ---------------- Aparência ----------------
-        column.addView(section("Posição e tamanho"))
-        column.addView(text("Ajuste até a ilha cobrir a câmera frontal do seu celular. As mudanças aparecem na hora.", 13f, MUTED))
-        column.addView(slider("Distância do topo", 0, 80, prefs.offsetYDp) { prefs.offsetYDp = it })
-        column.addView(slider("Largura", 60, 220, prefs.idleWidthDp) { prefs.idleWidthDp = it })
-        column.addView(slider("Altura", 20, 48, prefs.idleHeightDp) { prefs.idleHeightDp = it })
+        column.addView(switch("Mostrar mensagens na ilha", prefs.showNotifications) { prefs.showNotifications = it })
+        column.addView(switch("Avisar 10 min antes dos compromissos", prefs.eventReminders) { prefs.eventReminders = it })
 
         column.addView(section("Como usar"))
         column.addView(text(
-            "• Toque na ilha para abrir.\n" +
-                "• Segure a ilha para falar com a assistente.\n" +
-                "• Exemplos: \"que horas são\", \"liga a lanterna\", \"timer de 5 minutos\", \"alarme às 7 e 30\", " +
-                "\"pausa a música\", \"abre o WhatsApp\", \"lê minhas notificações\".\n" +
-                "• Com a chave do Claude: pergunte qualquer coisa.\n" +
-                "• A ilha se esconde quando o celular fica na horizontal.",
+            "• Toque na alcinha da borda (ou puxe para dentro) para abrir a coluna.\n" +
+                "• Toque na hora ou no calendário para ver a agenda; no brilho, volume ou bateria para os controles; " +
+                "no Wi-Fi ou no sinal para as conexões; no raio para a lanterna; no microfone para falar.\n" +
+                "• Exemplos para falar: \"marca dentista sexta às 10\", \"o que eu tenho amanhã?\", \"liga para a Maria\", " +
+                "\"manda mensagem pro João dizendo já estou chegando\", \"aumenta o volume\", \"brilho em 50\", " +
+                "\"modo vibrar\", \"timer de 5 minutos\", \"alarme às 7 e 30\", \"pausa a música\", \"vai chover hoje?\".\n" +
+                "• A ilha some na horizontal (vídeos e jogos).",
             14f, 0xFFD6D6DE.toInt(),
         ).apply { setLineSpacing(dp(4).toFloat(), 1f) })
     }
@@ -142,6 +196,10 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         refreshStatus()
+        // Voltou de dar a permissão de sobreposição: liga sozinho.
+        if (prefs.enabled && Settings.canDrawOverlays(this) && !IslandService.isRunning) {
+            startIsland()
+        }
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
@@ -149,25 +207,67 @@ class MainActivity : Activity() {
         refreshStatus()
     }
 
-    private fun refreshStatus() {
-        val mic = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        setStatus(micStatus, mic)
-
-        val listeners = Settings.Secure.getString(contentResolver, "enabled_notification_listeners").orEmpty()
-        val notif = listeners.split(":").any { ComponentName.unflattenFromString(it)?.packageName == packageName }
-        setStatus(notifStatus, notif)
-
-        val services = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
-        val island = services.split(":").any { ComponentName.unflattenFromString(it)?.packageName == packageName }
-        setStatus(islandStatus, island)
+    private fun toggleIsland(on: Boolean) {
+        if (!on) {
+            IslandService.stop(this)
+            return
+        }
+        prefs.enabled = true
+        if (!Settings.canDrawOverlays(this)) {
+            toast("Primeiro permita \"Mostrar sobre outros apps\".")
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+            return
+        }
+        startIsland()
     }
+
+    private fun startIsland() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 12)
+        }
+        try {
+            IslandService.start(this)
+        } catch (e: Exception) {
+            toast("Não consegui ligar a ilha: ${e.message}")
+        }
+        islandSwitch.postDelayed({ refreshStatus() }, 400)
+    }
+
+    private fun setSide(right: Boolean) {
+        prefs.rightSide = right
+        paintButton(sideRight, right)
+        paintButton(sideLeft, !right)
+        IslandHub.controller?.applyPrefs()
+    }
+
+    private fun refreshStatus() {
+        updatingSwitch = true
+        islandSwitch.isChecked = prefs.enabled && Settings.canDrawOverlays(this)
+        updatingSwitch = false
+
+        setStatus(overlayStatus, Settings.canDrawOverlays(this))
+        setStatus(micStatus, granted(Manifest.permission.RECORD_AUDIO))
+        setStatus(agendaStatus, granted(Manifest.permission.READ_CALENDAR) && granted(Manifest.permission.READ_CONTACTS))
+        val listeners = Settings.Secure.getString(contentResolver, "enabled_notification_listeners").orEmpty()
+        setStatus(notifStatus, listeners.split(":").any { ComponentName.unflattenFromString(it)?.packageName == packageName })
+        setStatus(brightStatus, Settings.System.canWrite(this))
+    }
+
+    private fun granted(p: String) = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
 
     private fun setStatus(view: TextView, ok: Boolean) {
         view.text = if (ok) "✓ Ativado" else "• Pendente"
-        view.setTextColor(if (ok) IslandController.GREEN else 0xFFFFB86B.toInt())
+        view.setTextColor(if (ok) Ui.GREEN else 0xFFFFB86B.toInt())
     }
 
     // ---------------- Fábrica de views ----------------
+
+    private fun rounded(color: Int, radius: Int = 18) = GradientDrawable().apply {
+        cornerRadius = dp(radius).toFloat()
+        setColor(color)
+    }
 
     private fun section(title: String) = text(title, 18f, Color.WHITE, bold = true).apply {
         setPadding(0, dp(26), 0, dp(10))
@@ -182,10 +282,7 @@ class MainActivity : Activity() {
     private fun card(description: String, status: TextView?, action: Button) = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(16), dp(14), dp(16), dp(14))
-        background = GradientDrawable().apply {
-            cornerRadius = dp(18).toFloat()
-            setColor(CARD)
-        }
+        background = rounded(CARD)
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             bottomMargin = dp(10)
         }
@@ -199,11 +296,12 @@ class MainActivity : Activity() {
         isAllCaps = false
         setTextColor(Color.WHITE)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-        background = GradientDrawable().apply {
-            cornerRadius = dp(23).toFloat()
-            setColor(if (primary) IslandController.ACCENT else 0xFF2A2A35.toInt())
-        }
+        paintButton(this, primary)
         setOnClickListener { onClick() }
+    }
+
+    private fun paintButton(b: Button, primary: Boolean) {
+        b.background = rounded(if (primary) Ui.ACCENT else 0xFF2A2A35.toInt(), 23)
     }
 
     private fun input(value: String, hint: String, secret: Boolean = false, onChange: (String) -> Unit) = EditText(this).apply {
@@ -212,16 +310,9 @@ class MainActivity : Activity() {
         setHintTextColor(0xFF5E5E6A.toInt())
         setTextColor(Color.WHITE)
         isSingleLine = true
-        inputType = if (secret) {
-            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        } else {
-            InputType.TYPE_CLASS_TEXT
-        }
+        inputType = if (secret) InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD else InputType.TYPE_CLASS_TEXT
         setPadding(dp(14), dp(12), dp(14), dp(12))
-        background = GradientDrawable().apply {
-            cornerRadius = dp(14).toFloat()
-            setColor(CARD)
-        }
+        background = rounded(CARD, 14)
         addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
@@ -239,31 +330,24 @@ class MainActivity : Activity() {
         setOnCheckedChangeListener { _, value -> onChange(value) }
     }
 
-    private fun slider(title: String, min: Int, max: Int, value: Int, onChange: (Int) -> Unit): View {
+    private fun slider(title: String, value: Int, onChange: (Int) -> Unit): View {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(12), 0, 0)
+            setPadding(0, dp(14), 0, 0)
         }
-        val caption = text("$title: $value dp", 14f, 0xFFD6D6DE.toInt())
-        val bar = SeekBar(this).apply {
-            this.max = max - min
-            progress = (value - min).coerceIn(0, max - min)
+        box.addView(text(title, 14f, 0xFFD6D6DE.toInt()))
+        box.addView(SeekBar(this).apply {
+            max = 100
+            progress = value.coerceIn(0, 100)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    val v = progress + min
-                    caption.text = "$title: $v dp"
-                    if (fromUser) {
-                        onChange(v)
-                        IslandHub.controller?.applyPrefs()
-                    }
+                    if (fromUser) onChange(progress)
                 }
 
                 override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
                 override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
             })
-        }
-        box.addView(caption)
-        box.addView(bar)
+        })
         return box
     }
 

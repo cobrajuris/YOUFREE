@@ -156,7 +156,7 @@ class VoiceActivity : Activity() {
         delivered = true
         val c = island
         if (c == null) {
-            Toast.makeText(this, "Ative a Ilha Assistente nas configurações de acessibilidade.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Ligue a ilha no app Ilha Assistente.", Toast.LENGTH_LONG).show()
         } else {
             c.onUserSaid(text)
         }

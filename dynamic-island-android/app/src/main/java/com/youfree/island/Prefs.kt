@@ -6,6 +6,11 @@ import android.content.Context
 class Prefs(context: Context) {
     private val sp = context.getSharedPreferences("island", Context.MODE_PRIVATE)
 
+    /** A ilha deve ficar ligada (religa sozinha depois de reiniciar o celular). */
+    var enabled: Boolean
+        get() = sp.getBoolean("enabled", false)
+        set(value) = sp.edit().putBoolean("enabled", value).apply()
+
     var assistantName: String
         get() = sp.getString("assistant_name", null)?.takeIf { it.isNotBlank() } ?: "Ilha"
         set(value) = sp.edit().putString("assistant_name", value.trim()).apply()
@@ -18,6 +23,11 @@ class Prefs(context: Context) {
         get() = sp.getString("model", null)?.takeIf { it.isNotBlank() } ?: ClaudeClient.DEFAULT_MODEL
         set(value) = sp.edit().putString("model", value.trim()).apply()
 
+    /** Cidade usada nas buscas na internet (clima, notícias locais...). */
+    var city: String
+        get() = sp.getString("city", "") ?: ""
+        set(value) = sp.edit().putString("city", value.trim()).apply()
+
     var speakReplies: Boolean
         get() = sp.getBoolean("speak", true)
         set(value) = sp.edit().putBoolean("speak", value).apply()
@@ -26,18 +36,18 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("show_notifications", true)
         set(value) = sp.edit().putBoolean("show_notifications", value).apply()
 
-    /** Distância (dp) do topo da tela até a ilha — ajuste para alinhar com a câmera. */
-    var offsetYDp: Int
-        get() = sp.getInt("offset_y", 8)
-        set(value) = sp.edit().putInt("offset_y", value).apply()
+    /** Avisar na ilha 10 minutos antes de cada compromisso. */
+    var eventReminders: Boolean
+        get() = sp.getBoolean("event_reminders", true)
+        set(value) = sp.edit().putBoolean("event_reminders", value).apply()
 
-    /** Largura (dp) da ilha em repouso. */
-    var idleWidthDp: Int
-        get() = sp.getInt("idle_width", 110)
-        set(value) = sp.edit().putInt("idle_width", value).apply()
+    /** true = borda direita da tela; false = borda esquerda. */
+    var rightSide: Boolean
+        get() = sp.getBoolean("right_side", true)
+        set(value) = sp.edit().putBoolean("right_side", value).apply()
 
-    /** Altura (dp) da ilha em repouso. */
-    var idleHeightDp: Int
-        get() = sp.getInt("idle_height", 32)
-        set(value) = sp.edit().putInt("idle_height", value).apply()
+    /** Posição vertical da aba, de 0 (topo) a 1 (base). */
+    var positionY: Float
+        get() = sp.getFloat("position_y", 0.28f)
+        set(value) = sp.edit().putFloat("position_y", value.coerceIn(0f, 1f)).apply()
 }

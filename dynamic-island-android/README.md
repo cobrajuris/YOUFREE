@@ -1,85 +1,85 @@
-# Ilha Assistente: ilha dinâmica para Android
+# Ilha Assistente: ilha lateral para Android
 
-Uma "Dynamic Island" estilo iPhone para qualquer Android 8+, que também é a sua assistente de voz.
-Ela fica por cima da câmera frontal e:
+Uma "ilha" presa na **borda da tela** de qualquer Android 8+, que também é sua assistente de voz.
 
-- **Em repouso:** é uma pílula preta sobre a câmera.
-- **Notificações:** cresce e mostra o ícone do app, quem mandou e a mensagem. Toque para ver tudo e use "Abrir ›" para ir à conversa.
-- **Música:** mostra a capa e o nome da música com um equalizador animado. Expandida, ganha botões ⏮ ⏯ ⏭ (funciona com Spotify, YouTube Music e outros players).
-- **Carregador:** avisa quando você conecta ou desconecta, com a porcentagem.
-- **Assistente:** **segure a ilha** (ou toque em *Falar*) e fale. Ela entende, responde no balão e fala em voz alta.
+- **Alcinha:** uma marquinha discreta na borda. Arraste para cima ou para baixo para mudar de lugar.
+  A cor indica: verde = música tocando, roxo = mensagem nova.
+- **Coluna de status** (toque ou puxe a alcinha para dentro): hora, sinal, Wi-Fi, brilho, volume, bateria,
+  calendário com o dia de hoje, lanterna, música e microfone.
+- **Cartões que saem da borda:**
+  - **Agenda:** compromissos de hoje e dos próximos dias, "+ Novo" e "Marcar por voz".
+  - **Controles:** barras de brilho e volume, lanterna, modo vibrar, Wi-Fi e Bluetooth.
+  - **Mensagens:** WhatsApp, Instagram etc. aparecem num cartão com botão "Abrir".
+  - **Música:** capa, nome e ⏮ ⏯ ⏭.
+  - **Aviso de compromisso** 10 minutos antes de cada evento (também falado).
+  - **Assistente:** o que você falou e a resposta.
 
 ## O que a assistente faz
 
-Sem nenhuma configuração extra:
-
 | Diga | O que acontece |
 |---|---|
-| "que horas são", "que dia é hoje" | Responde |
-| "como está a bateria" | Porcentagem e se está carregando |
-| "liga a lanterna" / "desliga a lanterna" | Lanterna |
-| "timer de 5 minutos" | Cria o timer no app Relógio |
-| "alarme às 7 e 30" | Cria o alarme |
-| "pausa a música", "próxima", "volta", "toca" | Controla o player |
-| "o que está tocando" | Nome e artista |
-| "abre o WhatsApp" | Abre qualquer app instalado |
+| "marca dentista sexta às 10", "me lembra de pagar a conta dia 15", "tirar o bolo daqui a 40 minutos" | Cria o compromisso na sua agenda (com aviso) |
+| "o que eu tenho hoje / amanhã / essa semana?", "qual meu próximo compromisso?" | Lê a agenda |
+| "liga para a Maria" | Abre o telefone com o número do contato |
+| "manda mensagem pro João dizendo já estou chegando" | Abre o WhatsApp com a mensagem pronta (ou "manda sms...") |
+| "aumenta o volume", "volume em 30", "muta" | Volume da mídia |
+| "brilho em 50", "diminui o brilho" | Brilho da tela |
+| "modo vibrar" / "modo normal" | Toque do celular |
+| "liga o Wi-Fi", "abre o Bluetooth" | Abre o painel do sistema |
+| "liga a lanterna", "que horas são", "como está a bateria" | Na hora |
+| "timer de 5 minutos", "alarme às 7 e 30" | App Relógio |
+| "pausa a música", "próxima", "o que está tocando" | Player |
+| "abre o Instagram" | Abre qualquer app |
 | "lê minhas notificações" | Lê as 3 últimas |
-| "nova conversa" | Apaga a memória da conversa |
 
-**Com uma chave da API do Claude**, ela também responde qualquer outra pergunta, com respostas curtas pensadas para serem faladas.
-Crie a chave em [console.anthropic.com](https://console.anthropic.com) → *API Keys* e cole no app. O uso da API é cobrado pela Anthropic.
-O modelo padrão é `claude-opus-5-5` e pode ser trocado no app.
+**Com uma chave da API do Claude**, ela responde qualquer pergunta e **busca na internet**
+(clima, notícias, resultados, preços). Coloque também sua cidade no app para o clima.
+Crie a chave em [console.anthropic.com](https://console.anthropic.com) → *API Keys* (uso pago).
 
-## Como instalar no celular
+## Como instalar
 
-1. Abra **Releases → "Ilha Assistente (APK mais recente)"** neste repositório pelo celular
-   (ou *Actions → Ilha Assistente (APK Android) → último run → Artifacts*) e baixe `IlhaAssistente.apk`.
-2. Toque no arquivo e permita "instalar apps desconhecidos" quando o Android pedir.
-3. Abra o app **Ilha Assistente** e siga os 3 passos da tela:
-   1. **Microfone:** permitir.
-   2. **Notificações:** ative "Ilha Assistente" na lista.
-   3. **Acessibilidade:** toque em "Ilha Assistente" e ative. É isso que desenha a ilha.
-4. Se o passo 2 ou 3 aparecer cinza / "configuração restrita" (Android 13+ com APK baixado):
-   *Configurações → Apps → Ilha Assistente → ⋮ → Permitir configurações restritas*, e tente de novo.
-5. Use os controles **Distância do topo / Largura / Altura** para encaixar a ilha certinho na câmera do seu modelo.
+1. Baixe `IlhaAssistente.apk` em **Releases → "Ilha Assistente (APK mais recente)"**.
+2. Se o **Play Protect** bloquear: Play Store → foto do perfil → Play Protect → ⚙ →
+   desative "Verificar apps", instale e **ative de novo** depois.
+3. Abra o app e siga os passos:
+   1. **Mostrar sobre outros apps** (obrigatório).
+   2. **Microfone**.
+   3. **Agenda e contatos**.
+   4. **Mensagens e música** (opcional; se aparecer "configuração restrita", use o botão
+      "Abrir informações do app" → ⋮ → "Permitir configurações restritas").
+   5. **Brilho** (opcional).
+4. Ligue a chave **"Ilha ligada"**. A alcinha aparece na borda da tela.
 
-> Atualizando para uma versão nova: se o Android disser que o pacote é incompatível, desinstale a versão antiga primeiro.
-> Cada build da nuvem é assinado com uma chave temporária diferente.
+A ilha fica ligada com um aviso fixo na barra de notificações (o Android exige isso).
+Ela volta sozinha depois de reiniciar o celular. Para desligar, use o app ou o botão "Desligar" do aviso.
 
-## Por que serviço de acessibilidade?
-
-Janelas de sobreposição comuns ficam **embaixo** da barra de status, e tocar nelas puxa a cortina de notificações.
-O serviço de acessibilidade é o único jeito de um app desenhar **acima** da barra de status.
-A ilha não lê o conteúdo da sua tela (`canRetrieveWindowContent=false`).
+> Versão 2.0 em diante: os APKs são assinados sempre com a mesma chave, então as atualizações
+> instalam por cima. Quem tinha a versão 1.0 precisa desinstalar uma vez antes.
 
 ## Privacidade
 
-- Comandos locais (hora, lanterna, timer, música, abrir apps...) não saem do celular. O reconhecimento de voz é o do Google/Android.
+- Comandos do celular (agenda, ligações, volume...) não saem do aparelho. O reconhecimento de voz é o do Google/Android.
 - Só o que você pergunta e não é comando local vai para a API do Claude, e só se você colocou uma chave.
-  O conteúdo das notificações nunca é enviado.
-- A chave fica salva só no aparelho (preferências privadas do app).
+  Mensagens, contatos e agenda nunca são enviados.
+- A chave fica salva só no aparelho.
 
-## Compilar você mesmo
+## Compilar
 
-Precisa do Android SDK (Android Studio) e JDK 17:
-
-```bash
-cd dynamic-island-android
-./gradlew assembleRelease
-# APK em app/build/outputs/apk/release/app-release.apk
-```
-
-O workflow `.github/workflows/ilha-assistente-apk.yml` compila e publica o APK automaticamente a cada push que mexe nesta pasta.
+Precisa do Android SDK e JDK 17: `./gradlew assembleRelease`.
+O workflow `.github/workflows/ilha-assistente-apk.yml` compila e publica o APK a cada push nesta pasta.
 
 ## Estrutura
 
 | Arquivo | Função |
 |---|---|
-| `IslandAccessibilityService.kt` | Liga e desliga a ilha |
-| `IslandController.kt` | A ilha: estados (repouso / compacta / expandida), animações, música, carregador |
-| `NotificationWatcher.kt` | Recebe notificações e libera o controle de música |
+| `IslandService.kt` | Serviço que mantém a ilha na tela |
+| `IslandController.kt` | A ilha: alcinha, coluna de status, cartões, animações, música, avisos de agenda |
+| `DeviceStatus.kt` | Bateria, rede, sinal, brilho, volume, lanterna, modo vibrar |
+| `CalendarRepo.kt` / `WhenParser.kt` | Agenda e entendimento de datas faladas |
+| `Contacts.kt` | Busca de contatos para ligar e mandar mensagem |
 | `Assistant.kt` | Comandos locais, voz (TTS) e envio para o Claude |
-| `ClaudeClient.kt` | Chamada à API do Claude pelo SDK oficial `anthropic-java` |
-| `VoiceActivity.kt` | Escuta a voz / caixa de texto por cima de qualquer app |
+| `ClaudeClient.kt` | API do Claude (SDK `anthropic-java`) com busca na internet |
+| `NotificationWatcher.kt` | Mensagens e controle de música |
+| `VoiceActivity.kt` | Escuta a voz / caixa de texto |
 | `MainActivity.kt` | Tela de configuração |
-| `WaveView.kt` | Barrinhas animadas (equalizador / nível da voz) |
+| `BootReceiver.kt` | Religa a ilha ao reiniciar |

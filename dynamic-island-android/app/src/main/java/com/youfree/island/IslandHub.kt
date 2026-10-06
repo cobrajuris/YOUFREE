@@ -16,13 +16,13 @@ data class NotificationInfo(
 )
 
 /**
- * Ponte entre os componentes do app (serviço de acessibilidade, ouvinte de notificações,
+ * Ponte entre os componentes do app (serviço da ilha, ouvinte de notificações,
  * tela de voz). Todos rodam no mesmo processo; só acessar na thread principal.
  */
 object IslandHub {
     val main = Handler(Looper.getMainLooper())
 
-    /** A ilha visível, ou null se o serviço de acessibilidade estiver desligado. */
+    /** A ilha visível, ou null se a ilha estiver desligada. */
     var controller: IslandController? = null
 
     var notificationWatcher: NotificationWatcher? = null

@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Ilha Assistente</string>
-    <string name="accessibility_description">Mostra a ilha dinâmica no topo da tela, sobre a câmera frontal. Ela exibe notificações, música e o assistente de voz. Não lê o conteúdo da tela.</string>
 </resources>
