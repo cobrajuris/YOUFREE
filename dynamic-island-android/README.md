@@ -1,135 +1,111 @@
-# Ilha Assistente: ilha lateral para Android
+# Ilha Assistente: Ilha Dinâmica para Android
 
-Uma "ilha" presa na **borda da tela** de qualquer Android 8+, que também é sua assistente de voz.
+Uma Ilha Dinâmica no estilo do iPhone para Android 8+, que **flutua em volta da câmera frontal**
+e é, ao mesmo tempo, uma assistente de voz que atende quando você diz **"Oi assistente"**.
 
-- **Alcinha:** uma marquinha discreta na borda. Arraste para cima ou para baixo para mudar de lugar.
-  A cor indica: verde = música tocando, roxo = mensagem nova.
-- **Coluna de status** (toque ou puxe a alcinha para dentro): hora, sinal, Wi-Fi, brilho, volume, bateria,
-  calendário com o dia de hoje, lanterna, música e microfone.
-- **Cartões que saem da borda:**
-  - **Agenda:** compromissos de hoje e dos próximos dias, "+ Novo" e "Marcar por voz".
-  - **Controles:** barras de brilho e volume, lanterna, modo vibrar, Wi-Fi e Bluetooth.
-  - **Mensagens:** WhatsApp, Instagram etc. aparecem num cartão com botão "Abrir".
-  - **Música:** capa, nome e ⏮ ⏯ ⏭.
-  - **Aviso de compromisso** 10 minutos antes de cada evento (também falado).
-  - **Assistente:** o que você falou e a resposta.
+## A ilha
 
-## Ilha no topo, em volta da câmera (padrão)
+O app lê a posição exata do furo da câmera (DisplayCutout) e centraliza e dimensiona a pílula
+nele. **Nada é desenhado em cima da câmera**: o conteúdo fica sempre dos dois lados dela.
 
-Como no iPhone: um bloco preto preso no topo da tela que **envolve a câmera frontal**.
-O app lê a posição exata do furo da câmera do seu celular e centraliza e dimensiona a ilha
-sozinho.
+| Estado | Como fica |
+|---|---|
+| Repouso | Só a pílula preta em volta da câmera |
+| Ao vivo (compacta) | Conteúdo à esquerda e à direita da câmera: timer (ícone · 4:59), música (capa · ondas na cor do álbum), próximo compromisso (calendário · 15 min), carregando (raio · 76%) |
+| Expandida | Ao tocar, cresce num cartão arredondado. A primeira linha fica na altura da câmera (coisas à esquerda e à direita); o resto desce embaixo |
 
-- **Em repouso:** só um pouco maior que a câmera, com os cantos de baixo arredondados.
-- **Ao vivo:** quando chega mensagem (ícone do app à esquerda, bolinha azul à direita) ou tem
-  música tocando (capa à esquerda, ondas à direita), ela se alarga para os dois lados da câmera.
-- **Toque ou puxe para baixo** para abrir o painel: hora grande, bateria e sinal, Wi-Fi,
-  Bluetooth, Lanterna, Vibrar, barras de brilho e volume, próximo compromisso, música e
-  "Falar com a assistente". **Segure** para falar direto.
-- Mensagens e avisos descem da câmera como um cartão.
+**Gestos:** tocar = expandir · segurar = falar · puxar para baixo = expandir ·
+puxar para cima ou tocar fora = recolher.
 
-O Android deixa a barra de status por cima de janelas flutuantes, então a ilha desce um
-pouquinho abaixo dela: é essa parte de baixo que recebe o toque.
-Também dá para voltar a usar a ilha nas bordas laterais em Ajustes → Aparência.
+**Cartões expandidos:**
+- **Timers** (estilo Live Activity): tempo grande, anel de progresso, pausar, +1 / +5 min, parar.
+  Vários timers ao mesmo tempo. Quando acaba, toca o alarme e vibra.
+- **Música:** capa, título, artista, barra de progresso com tempos, ⏮ ⏯ ⏭.
+- **Próximo compromisso:** "Em 15 min", horário, local, barra de contagem, "Ver evento".
+  Aparece sozinho 10 minutos antes.
+- **Mensagens:** ícone do app, quem mandou, prévia, "Abrir".
+- **Assistente (estilo Siri):** "Ouvindo" com onda colorida que reage à voz, o que você
+  disse e a resposta.
+- **Início** (tocar sem nada ao vivo): hora, bateria, saudação, próximo compromisso e atalhos
+  para Falar, Agenda, Notas e Controles.
+- **Controles:** Wi-Fi, Bluetooth, Lanterna, Vibrar e barras de brilho e volume.
+- **Agenda:** semana com os dias ocupados, hoje, próximos e "Salvar por voz".
+- **Notas:** bloco de notas da assistente.
 
-## Tela de bloqueio premium
+Animações com mola, desfoque na troca de conteúdo (Android 12+), tipografia Inter e cores
+do iOS.
 
-Quando a tela apaga, a ilha prepara uma tela de bloqueio própria que aparece **por cima** do
-bloqueio do Android (como apps de despertador). Ela **não substitui** a segurança: para abrir
-o celular continua sendo preciso o PIN, a digital ou o rosto.
+## "Oi assistente"
 
-- Relógio grande com a data, sobre o seu papel de parede.
-- Widgets: anel de bateria e o próximo compromisso.
-- Calendário da semana (hoje em vermelho, bolinha nos dias com compromisso) e a agenda de hoje.
-- **Só prévias das mensagens**: quem mandou e uma linha do texto. Dá para esconder o texto também.
-- Lanterna e câmera nos cantos, "Deslize para cima para abrir".
-- Desbloqueou pela digital ou pelo rosto? Ela sai da frente sozinha.
-
-Liga e desliga em **Ajustes → Tela de bloqueio**. A ilha da borda não aparece sobre o
-bloqueio (o Android não permite janelas flutuantes ali); é essa tela que cumpre esse papel.
-
-## Design
-
-Inspirado no modo escuro da Apple:
-- Preto profundo com um fio de luz na borda, cantos contínuos e tipografia **Inter**
-  (a fonte aberta mais parecida com o SF Pro), com números tabulares no relógio.
-- Paleta de cores do sistema do iOS (azul, verde, laranja, vermelho...).
-- **Central de Controle**: botões redondos de Wi-Fi, Bluetooth, Lanterna e Vibrar, e barras
-  grossas de brilho e volume que se enchem de branco, como no iPhone.
-- **Orbe animado** da assistente (estilo Siri), que reage à sua voz e gira enquanto pensa.
-- Animações com **mola**, botões que "afundam" ao toque e vibração leve.
-- Tela de configuração no estilo dos **Ajustes do iPhone**, com interruptores do iOS.
-
-Fonte Inter: SIL Open Font License (`INTER_FONT_LICENSE.txt`).
+Com a tela ligada, diga **"Oi assistente"** e a ilha abre ouvindo. O reconhecimento da frase
+é **100% no celular** com o [Vosk](https://github.com/alphacep/vosk-api) (código aberto): o áudio
+não sai do aparelho. A voz em português (31 MB) é baixada uma vez em Ajustes → Oi assistente.
 
 ## O que a assistente faz
 
 | Diga | O que acontece |
 |---|---|
-| "marca dentista sexta às 10", "me lembra de pagar a conta dia 15", "tirar o bolo daqui a 40 minutos" | Cria o compromisso na sua agenda (com aviso) |
-| "o que eu tenho hoje / amanhã / essa semana?", "qual meu próximo compromisso?" | Lê a agenda |
-| "liga para a Maria" | Abre o telefone com o número do contato |
-| "manda mensagem pro João dizendo já estou chegando" | Abre o WhatsApp com a mensagem pronta (ou "manda sms...") |
-| "aumenta o volume", "volume em 30", "muta" | Volume da mídia |
-| "brilho em 50", "diminui o brilho" | Brilho da tela |
-| "modo vibrar" / "modo normal" | Toque do celular |
-| "liga o Wi-Fi", "abre o Bluetooth" | Abre o painel do sistema |
-| "liga a lanterna", "que horas são", "como está a bateria" | Na hora |
-| "timer de 5 minutos", "alarme às 7 e 30" | App Relógio |
-| "pausa a música", "próxima", "o que está tocando" | Player |
-| "abre o Instagram" | Abre qualquer app |
-| "lê minhas notificações" | Lê as 3 últimas |
+| "salva dia 29 eu vou viajar", "marca dentista sexta às 10" | Salva na agenda (com aviso) |
+| "anota comprar pão e leite", "minhas notas" | Bloco de notas |
+| "timer de 10 minutos para o macarrão", "para o timer" | Timer ao vivo na ilha |
+| "o que eu tenho amanhã?", "qual meu próximo compromisso?" | Lê a agenda |
+| "liga para a Maria" | Abre o telefone com o número |
+| "manda mensagem pro João dizendo já estou chegando" | WhatsApp com a mensagem pronta (ou SMS) |
+| "me leva para o shopping", "como chego na rodoviária" | Rota no Google Maps |
+| "chama um Uber para o aeroporto", "pede um 99" | Abre o app de corrida |
+| "toca Coldplay no Spotify", "toca jazz no YouTube" | Música pela busca |
+| "quanto é 15% de 200?", "quanto é 37 vezes 12" | Conta na hora |
+| "aumenta o volume", "brilho em 50", "modo vibrar", "liga a lanterna" | Controles |
+| "liga o Wi-Fi", "abre o Bluetooth" | Painéis do sistema |
+| "alarme às 7 e 30", "abre o Instagram", "lê minhas notificações" | Na hora |
 
-**Com uma chave da API do Claude**, ela responde qualquer pergunta e **busca na internet**
-(clima, notícias, resultados, preços). Coloque também sua cidade no app para o clima.
-Crie a chave em [console.anthropic.com](https://console.anthropic.com) → *API Keys* (uso pago).
+**Com uma chave da API do Claude**, ela responde qualquer pergunta e busca na internet
+(clima, notícias, resultados). Crie a chave em [console.anthropic.com](https://console.anthropic.com).
 
-## Como instalar
+## Tela de bloqueio
+
+- **Com "Toque perfeito" (acessibilidade) ligado**, a própria ilha aparece na tela de bloqueio,
+  mais restrita: só prévia de uma linha das mensagens (ou nenhuma, se escolher esconder),
+  sem controles e sem assistente até desbloquear.
+- A tela de bloqueio premium (relógio grande, widgets, semana e prévias) continua disponível
+  em Ajustes → Tela de bloqueio.
+
+## Instalação
 
 1. Baixe `IlhaAssistente.apk` em **Releases → "Ilha Assistente (APK mais recente)"**.
-2. Se o **Play Protect** bloquear: Play Store → foto do perfil → Play Protect → ⚙ →
-   desative "Verificar apps", instale e **ative de novo** depois.
-3. Abra o app e siga os passos:
-   1. **Mostrar sobre outros apps** (obrigatório).
-   2. **Microfone**.
-   3. **Agenda e contatos**.
-   4. **Mensagens e música** (opcional; se aparecer "configuração restrita", use o botão
-      "Abrir informações do app" → ⋮ → "Permitir configurações restritas").
-   5. **Brilho** (opcional).
-4. Ligue a chave **"Ilha ligada"**. A alcinha aparece na borda da tela.
-
-A ilha fica ligada com um aviso fixo na barra de notificações (o Android exige isso).
-Ela volta sozinha depois de reiniciar o celular. Para desligar, use o app ou o botão "Desligar" do aviso.
-
-> Versão 2.0 em diante: os APKs são assinados sempre com a mesma chave, então as atualizações
-> instalam por cima. Quem tinha a versão 1.0 precisa desinstalar uma vez antes.
+2. Se o Play Protect bloquear: Play Store → perfil → Play Protect → ⚙ → desative
+   "Verificar apps", instale e ative de novo.
+3. No app, ligue **"Ilha ligada"** e dê as permissões:
+   - **Mostrar sobre outros apps** (obrigatório);
+   - **Toque perfeito na ilha** (recomendado: sem ele, tocar bem no topo abre a cortina de
+     notificações, porque o Android deixa a barra de status por cima);
+   - Microfone, Agenda e contatos, Mensagens e música, Brilho.
+4. Se algo aparecer cinza ("configuração restrita"): **Configurações restritas** → ⋮ →
+   "Permitir configurações restritas".
+5. Em **Oi assistente**, toque em "Voz em português" para baixar.
 
 ## Privacidade
 
-- Comandos do celular (agenda, ligações, volume...) não saem do aparelho. O reconhecimento de voz é o do Google/Android.
-- Só o que você pergunta e não é comando local vai para a API do Claude, e só se você colocou uma chave.
-  Mensagens, contatos e agenda nunca são enviados.
-- A chave fica salva só no aparelho.
+- "Oi assistente" é reconhecido no celular. Comandos do celular não saem do aparelho.
+- Só perguntas livres vão para a API do Claude, e só se você colocou uma chave.
+  Mensagens, contatos, notas e agenda nunca são enviados.
 
 ## Compilar
 
-Precisa do Android SDK e JDK 17: `./gradlew assembleRelease`.
-O workflow `.github/workflows/ilha-assistente-apk.yml` compila e publica o APK a cada push nesta pasta.
+Android SDK + JDK 17: `./gradlew assembleRelease`. O workflow
+`.github/workflows/ilha-assistente-apk.yml` compila e publica o APK a cada push.
 
 ## Estrutura
 
 | Arquivo | Função |
 |---|---|
-| `IslandService.kt` | Serviço que mantém a ilha na tela |
-| `IslandController.kt` | A ilha: alcinha, coluna de status, cartões, animações, música, avisos de agenda |
-| `DeviceStatus.kt` | Bateria, rede, sinal, brilho, volume, lanterna, modo vibrar |
-| `CalendarRepo.kt` / `WhenParser.kt` | Agenda e entendimento de datas faladas |
-| `Contacts.kt` | Busca de contatos para ligar e mandar mensagem |
-| `Assistant.kt` | Comandos locais, voz (TTS) e envio para o Claude |
+| `IslandController.kt` | A ilha: geometria da câmera, estados, atividades ao vivo, cartões, gestos, animações |
+| `IslandService.kt` | Serviço em primeiro plano: hospeda a ilha, timers e "Oi assistente" |
+| `IslandAccessibilityService.kt` | Modo "toque perfeito" (ilha acima da barra de status) |
+| `WakeWord.kt` | "Oi assistente" offline com Vosk + download do modelo |
+| `Timers.kt` / `Notes.kt` | Timers ao vivo e bloco de notas |
+| `Assistant.kt` / `WhenParser.kt` | Comandos, datas faladas, Claude e voz |
 | `ClaudeClient.kt` | API do Claude (SDK `anthropic-java`) com busca na internet |
-| `NotificationWatcher.kt` | Mensagens e controle de música |
-| `VoiceActivity.kt` | Escuta a voz / barra de digitar |
-| `Ui.kt` / `Components.kt` | Sistema de design: cores, fontes, molas, barras, botões, orbe, interruptor |
-| `LockActivity.kt` | Tela de bloqueio premium |
-| `MainActivity.kt` | Tela de configuração |
-| `BootReceiver.kt` | Religa a ilha ao reiniciar |
+| `CalendarRepo.kt` / `Contacts.kt` / `DeviceStatus.kt` | Integrações com o celular |
+| `Ui.kt` / `Components.kt` / `StatusViews.kt` | Sistema de design e componentes |
+| `LockActivity.kt` / `VoiceActivity.kt` / `MainActivity.kt` | Telas |

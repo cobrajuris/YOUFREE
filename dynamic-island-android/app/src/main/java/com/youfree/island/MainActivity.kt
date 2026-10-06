@@ -32,6 +32,8 @@ class MainActivity : Activity() {
     private lateinit var prefs: Prefs
     private lateinit var islandSwitch: IosSwitch
     private val statusViews = HashMap<String, LinearLayout>()
+    private lateinit var modelStatus: TextView
+    private var downloading = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,11 +68,15 @@ class MainActivity : Activity() {
         // ---------------- Permissões ----------------
         column.addView(group(
             "Permissões",
-            "Se \"Mensagens e música\" aparecer cinza ou como \"configuração restrita\", toque em \"Configurações restritas\", " +
+            "\"Toque perfeito\" deixa a ilha acima da barra de status, então tocar nela nunca abre a cortina de notificações. " +
+                "Se ele ou \"Mensagens e música\" aparecer cinza (\"configuração restrita\"), toque em \"Configurações restritas\", " +
                 "depois nos ⋮ no canto de cima e em \"Permitir configurações restritas\".",
             listOf(
                 statusRow("overlay", R.drawable.ic_layers, Ui.BLUE, "Mostrar sobre outros apps", "Obrigatório") {
                     startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+                },
+                statusRow("touch", R.drawable.ic_sparkle, Ui.INDIGO, "Toque perfeito na ilha", "Recomendado · Acessibilidade") {
+                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                 },
                 statusRow("mic", R.drawable.ic_mic, Ui.ORANGE, "Microfone", "Para falar com a assistente") {
                     requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 10)
@@ -93,33 +99,22 @@ class MainActivity : Activity() {
             ),
         ), lp(top = 28))
 
-        // ---------------- Aparência ----------------
-        val current = when {
-            prefs.islandOnTop -> 0
-            prefs.rightSide -> 2
-            else -> 1
-        }
-        val segmented = Segmented(this, listOf("Topo", "Esquerda", "Direita"), current) { i ->
-            prefs.islandOnTop = i == 0
-            if (i > 0) prefs.rightSide = i == 2
-            IslandHub.controller?.applyPrefs()
-        }
-        val height = PillSlider(this, R.drawable.ic_updown).apply {
-            value = prefs.positionY
-            onChange = {
-                prefs.positionY = it
-                IslandHub.controller?.applyPrefs()
-            }
-        }
-        val appearance = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(14), dp(16), dp(16))
-            addView(Ui.text(this@MainActivity, 15f, Color.WHITE, value = "Posição da ilha"))
-            addView(segmented, lp(top = 10, h = dp(34)))
-            addView(Ui.text(this@MainActivity, 15f, Color.WHITE, value = "Altura na borda (só nas laterais)"), lp(top = 18))
-            addView(height, lp(top = 10, h = dp(44)))
-        }
-        column.addView(group("Aparência", "No topo, a ilha se ajusta sozinha à câmera do seu celular. Toque ou puxe ela para baixo para abrir; segure para falar. Nas laterais, arraste a alcinha para mudar a altura.", listOf(appearance)), lp(top = 28))
+        // ---------------- "Oi assistente" ----------------
+        val modelRow = row(R.drawable.ic_sparkle, Ui.INDIGO, "Voz em português", "…", chevron()) { downloadModel() }
+        modelStatus = ((modelRow as LinearLayout).getChildAt(1) as LinearLayout).getChildAt(1) as TextView
+        column.addView(group(
+            "Oi assistente",
+            "Com a tela ligada, diga \"Oi assistente\" e a ilha abre ouvindo. Tudo é reconhecido no próprio celular " +
+                "(nada de áudio vai para a internet). Baixe a voz em português uma vez (31 MB, de preferência no Wi-Fi). " +
+                "Gasta um pouco mais de bateria.",
+            listOf(
+                switchRow(R.drawable.ic_mic, Ui.PURPLE, "Ouvir \"Oi assistente\"", prefs.wakeWord) {
+                    prefs.wakeWord = it
+                    if (it) IslandService.refresh(this) else IslandHub.pauseWake()
+                },
+                modelRow,
+            ),
+        ), lp(top = 28))
 
         // ---------------- Assistente ----------------
         column.addView(group(
@@ -156,13 +151,14 @@ class MainActivity : Activity() {
 
         // ---------------- Dicas ----------------
         val tips = listOf(
-            "Toque na alcinha da borda, ou puxe para dentro, para abrir.",
-            "Toque na hora ou no calendário para ver sua agenda.",
-            "Brilho, volume ou bateria abrem os controles.",
-            "\"Marca dentista sexta às 10\"",
-            "\"O que eu tenho amanhã?\"",
+            "Toque na ilha para abrir. Segure para falar. Puxe para baixo para expandir.",
+            "\"Oi assistente\" abre a assistente sem tocar em nada.",
+            "\"Salva dia 29 eu vou viajar\"",
+            "\"Anota comprar pão e leite\"",
+            "\"Timer de 10 minutos para o macarrão\"",
             "\"Manda mensagem pro João dizendo já estou chegando\"",
-            "\"Vai chover hoje?\"",
+            "\"Me leva para o shopping\" · \"Chama um Uber\"",
+            "\"Toca Coldplay no Spotify\" · \"Quanto é 15% de 200?\"",
         )
         column.addView(group("Como usar", "A ilha some sozinha na horizontal, em vídeos e jogos.", tips.map { tipRow(it) }), lp(top = 28))
     }
@@ -171,7 +167,11 @@ class MainActivity : Activity() {
         super.onResume()
         refreshStatus()
         // Voltou de dar a permissão de sobreposição: liga sozinho.
-        if (prefs.enabled && Settings.canDrawOverlays(this) && !IslandService.isRunning) startIsland()
+        if (prefs.enabled && Settings.canDrawOverlays(this) && !IslandService.isRunning) {
+            startIsland()
+        } else if (IslandService.isRunning) {
+            IslandService.refresh(this) // com o app aberto o Android deixa ligar o microfone do "Oi assistente"
+        }
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
@@ -212,9 +212,40 @@ class MainActivity : Activity() {
         val listeners = Settings.Secure.getString(contentResolver, "enabled_notification_listeners").orEmpty()
         setStatus("notif", listeners.split(":").any { ComponentName.unflattenFromString(it)?.packageName == packageName })
         setStatus("bright", Settings.System.canWrite(this))
+        val a11y = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
+        setStatus("touch", a11y.split(":").any { ComponentName.unflattenFromString(it)?.packageName == packageName })
+        if (!downloading) {
+            modelStatus.text = if (WakeWord.isModelReady(this)) "Pronta ✓" else "Toque para baixar (31 MB)"
+            modelStatus.setTextColor(if (WakeWord.isModelReady(this)) Ui.GREEN else Ui.BLUE)
+        }
     }
 
     private fun granted(p: String) = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
+
+    private fun downloadModel() {
+        if (downloading) return
+        if (WakeWord.isModelReady(this)) {
+            toast("A voz em português já está pronta.")
+            return
+        }
+        if (!granted(Manifest.permission.RECORD_AUDIO)) requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 10)
+        downloading = true
+        modelStatus.setTextColor(Ui.SECONDARY)
+        modelStatus.text = "Baixando… 0%"
+        WakeWord.download(this, progress = { pct -> modelStatus.text = "Baixando… $pct%" }) { ok, error ->
+            downloading = false
+            if (ok) {
+                modelStatus.text = "Pronta ✓"
+                modelStatus.setTextColor(Ui.GREEN)
+                IslandService.refresh(this)
+                toast("Pronto! Diga \"Oi assistente\".")
+            } else {
+                modelStatus.text = "Falhou. Toque para tentar de novo"
+                modelStatus.setTextColor(Ui.RED)
+                toast("Não consegui baixar: $error")
+            }
+        }
+    }
 
     private fun setStatus(key: String, ok: Boolean) {
         val box = statusViews[key] ?: return
@@ -246,31 +277,27 @@ class MainActivity : Activity() {
         val texts = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(Ui.text(this@MainActivity, 13f, 0xCCFFFFFF.toInt(), value = "ILHA ASSISTENTE", weight = Ui.Weight.SEMIBOLD).apply { letterSpacing = 0.08f })
-            addView(Ui.text(this@MainActivity, 26f, Color.WHITE, value = "Tudo à mão,\nna borda da tela.", weight = Ui.Weight.DISPLAY).apply {
+            addView(Ui.text(this@MainActivity, 26f, Color.WHITE, value = "Sua Ilha Dinâmica,\nem volta da câmera.", weight = Ui.Weight.DISPLAY).apply {
                 setLineSpacing(0f, 1.05f)
             }, lp(top = 8))
-            addView(Ui.text(this@MainActivity, 14f, 0xD9FFFFFF.toInt(), value = "Agenda, mensagens, música,\ncontroles e uma assistente de voz."), lp(top = 10))
+            addView(Ui.text(this@MainActivity, 14f, 0xD9FFFFFF.toInt(), value = "Timers, música, agenda, mensagens\ne uma assistente que atende \"Oi assistente\"."), lp(top = 10))
         }
-        frame.addView(texts, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.START or Gravity.CENTER_VERTICAL).apply {
+        frame.addView(texts, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.START or Gravity.BOTTOM).apply {
             marginStart = dp(22)
+            bottomMargin = dp(20)
         })
 
-        // Mini coluna da ilha presa na borda direita
-        val dock = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(0, dp(12), dp(14), dp(12))
-            background = Ui.rounded(Color.BLACK, Ui.dpf(this@MainActivity, 22f), Ui.HAIRLINE, 1)
-            addView(Ui.text(this@MainActivity, 13f, Color.WHITE, value = "9:41", weight = Ui.Weight.DISPLAY))
-            addView(SignalView(this@MainActivity).apply { level = 4 }, LinearLayout.LayoutParams(dp(14), dp(10)).apply { topMargin = dp(12) })
-            for (res in listOf(R.drawable.ic_wifi, R.drawable.ic_brightness, R.drawable.ic_volume)) {
-                addView(Ui.icon(this@MainActivity, res), LinearLayout.LayoutParams(dp(15), dp(15)).apply { topMargin = dp(12) })
-            }
-            addView(BatteryView(this@MainActivity).apply { percent = 80 }, LinearLayout.LayoutParams(dp(20), dp(10)).apply { topMargin = dp(12) })
+        // Prévia da ilha em volta da câmera, com um timer ao vivo
+        val pill = FrameLayout(this).apply {
+            background = Ui.rounded(Color.BLACK, Ui.dpf(this@MainActivity, 19f), Ui.HAIRLINE, 1)
+            addView(Ui.iconTile(this@MainActivity, R.drawable.ic_timer, Ui.ORANGE, 22, 14),
+                FrameLayout.LayoutParams(dp(22), dp(22), Gravity.START or Gravity.CENTER_VERTICAL).apply { marginStart = dp(10) })
+            addView(View(this@MainActivity).apply { background = Ui.oval(0xFF1C1C24.toInt()) },
+                FrameLayout.LayoutParams(dp(13), dp(13), Gravity.CENTER))
+            addView(Ui.text(this@MainActivity, 15f, Ui.ORANGE, value = "4:59", weight = Ui.Weight.DISPLAY_SEMIBOLD),
+                FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(12) })
         }
-        frame.addView(dock, FrameLayout.LayoutParams(dp(56), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.END or Gravity.CENTER_VERTICAL).apply {
-            marginEnd = -dp(12)
-        })
+        frame.addView(pill, FrameLayout.LayoutParams(dp(196), dp(38), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(14) })
         return frame
     }
 

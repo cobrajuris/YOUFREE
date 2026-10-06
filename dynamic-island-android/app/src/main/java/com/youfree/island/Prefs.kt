@@ -41,6 +41,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("event_reminders", true)
         set(value) = sp.edit().putBoolean("event_reminders", value).apply()
 
+    /** Escutar "Oi assistente" com a tela ligada (precisa baixar o modelo de voz uma vez). */
+    var wakeWord: Boolean
+        get() = sp.getBoolean("wake_word", true)
+        set(value) = sp.edit().putBoolean("wake_word", value).apply()
+
     /** Tela de bloqueio premium (relógio, agenda e prévias de mensagens sobre o bloqueio do sistema). */
     var lockScreen: Boolean
         get() = sp.getBoolean("lock_screen", true)

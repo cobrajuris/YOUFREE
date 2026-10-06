@@ -11,8 +11,12 @@ android {
         applicationId = "com.youfree.island"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "5.0"
+        versionCode = 6
+        versionName = "6.0"
+        // Vosk ("Oi assistente") traz bibliotecas nativas; só as de celulares reais.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     signingConfigs {
@@ -64,4 +68,7 @@ kotlin {
 
 dependencies {
     implementation("com.anthropic:anthropic-java:2.68.0")
+    // Reconhecimento de voz offline para a palavra de ativação "Oi assistente" (github.com/alphacep/vosk-api)
+    implementation("com.alphacephei:vosk-android:0.3.75") { isTransitive = false }
+    implementation("net.java.dev.jna:jna:5.18.1@aar")
 }

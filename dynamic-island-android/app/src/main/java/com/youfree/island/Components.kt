@@ -351,3 +351,114 @@ class Segmented(context: Context, labels: List<String>, selected: Int, private v
         }
     }
 }
+
+/** Onda colorida da Siri: várias senoides que crescem com a voz e se misturam com brilho. */
+class SiriWaveView(context: Context) : View(context) {
+    var level = 0f
+        set(v) {
+            field = v.coerceIn(0f, 1f)
+        }
+    var active = true
+    private var smooth = 0.15f
+    private val colors = intArrayOf(Ui.PINK, Ui.PURPLE, Ui.BLUE, Ui.TEAL)
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        xfermode = PorterDuffXfermode(PorterDuff.Mode.SCREEN)
+    }
+    private val path = Path()
+
+    init {
+        setLayerType(LAYER_TYPE_HARDWARE, null)
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val mid = h / 2f
+        val t = SystemClock.uptimeMillis() / 1000f
+        val target = if (active) 0.18f + level * 0.82f else 0.06f
+        smooth += (target - smooth) * 0.18f
+        for (i in colors.indices) {
+            val freq = 1.4f + i * 0.45f
+            val speed = 2.2f + i * 0.7f
+            val amp = mid * 0.92f * smooth * (0.55f + 0.45f * sin(t * (1.1f + i * 0.3f)))
+            path.reset()
+            path.moveTo(0f, mid)
+            val steps = 48
+            for (s in 0..steps) {
+                val x = w * s / steps
+                val nx = s.toFloat() / steps
+                // Envelope: zero nas pontas, máximo no meio.
+                val env = sin(nx * Math.PI.toFloat())
+                path.lineTo(x, mid - amp * env * sin(nx * freq * 6.28f + t * speed + i))
+            }
+            for (s in steps downTo 0) {
+                val x = w * s / steps
+                val nx = s.toFloat() / steps
+                val env = sin(nx * Math.PI.toFloat())
+                path.lineTo(x, mid + amp * env * 0.6f * sin(nx * freq * 6.28f + t * speed + i + 1.3f))
+            }
+            path.close()
+            paint.shader = LinearGradient(0f, 0f, w, 0f,
+                intArrayOf(colors[i] and 0x00FFFFFF, colors[i], colors[i] and 0x00FFFFFF), null, Shader.TileMode.CLAMP)
+            paint.alpha = 210
+            canvas.drawPath(path, paint)
+        }
+        if (isShown) postInvalidateOnAnimation()
+    }
+}
+
+/**
+ * Linha com conteúdo dos dois lados da câmera frontal: [esquerda] (furo da câmera) [direita].
+ * Nada é desenhado em cima da câmera.
+ */
+class CameraRow(context: Context) : FrameLayout(context) {
+    /** Centro da câmera e largura do espaço livre, em px relativos a esta view. */
+    var cameraX = 0
+    var gap = 0
+    private var leading: View? = null
+    private var trailing: View? = null
+    var sidePadding = Ui.dp(context, 14)
+
+    fun set(leading: View?, trailing: View?) {
+        removeAllViews()
+        this.leading = leading
+        this.trailing = trailing
+        leading?.let { addView(it) }
+        trailing?.let { addView(it) }
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val w = MeasureSpec.getSize(widthMeasureSpec)
+        val h = MeasureSpec.getSize(heightMeasureSpec)
+        val leftW = (cameraX - gap / 2 - sidePadding).coerceAtLeast(0)
+        val rightW = (w - (cameraX + gap / 2) - sidePadding).coerceAtLeast(0)
+        leading?.let { measureSide(it, leftW, h) }
+        trailing?.let { measureSide(it, rightW, h) }
+        setMeasuredDimension(w, h)
+    }
+
+    /** Respeita o tamanho pedido pelo filho, sem passar do espaço do lado da câmera. */
+    private fun measureSide(child: View, availW: Int, availH: Int) {
+        fun spec(avail: Int, want: Int) = when {
+            want >= 0 -> MeasureSpec.makeMeasureSpec(min(want, avail), MeasureSpec.EXACTLY)
+            want == LayoutParams.MATCH_PARENT -> MeasureSpec.makeMeasureSpec(avail, MeasureSpec.EXACTLY)
+            else -> MeasureSpec.makeMeasureSpec(avail, MeasureSpec.AT_MOST)
+        }
+        val lp = child.layoutParams
+        child.measure(spec(availW, lp?.width ?: LayoutParams.WRAP_CONTENT), spec(availH, lp?.height ?: LayoutParams.WRAP_CONTENT))
+    }
+
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        val h = b - t
+        leading?.let {
+            val top = (h - it.measuredHeight) / 2
+            it.layout(sidePadding, top, sidePadding + it.measuredWidth, top + it.measuredHeight)
+        }
+        trailing?.let {
+            val top = (h - it.measuredHeight) / 2
+            val right = (r - l) - sidePadding
+            it.layout(right - it.measuredWidth, top, right, top + it.measuredHeight)
+        }
+    }
+}

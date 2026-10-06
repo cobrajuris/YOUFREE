@@ -2,7 +2,9 @@ package com.youfree.island
 
 import android.content.Context
 import android.content.Intent
+import android.app.SearchManager
 import android.net.Uri
+import android.provider.MediaStore
 import android.provider.AlarmClock
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
@@ -189,7 +191,13 @@ class Assistant(private val ctx: Context, private val island: IslandController) 
             n.contains("notifica") -> return readNotifications()
         }
 
+        greetingCommand(n)?.let { return it }
         createEventCommand(raw, n)?.let { return it }
+        notesCommand(raw, n)?.let { return it }
+        mathCommand(raw, n)?.let { return it }
+        navigationCommand(raw)?.let { return it }
+        rideCommand(raw, n)?.let { return it }
+        playSearchCommand(raw, n)?.let { return it }
         agendaQuery(n)?.let { return it }
         connectionCommand(n)?.let { return it }
         callCommand(n)?.let { return it }
@@ -207,9 +215,12 @@ class Assistant(private val ctx: Context, private val island: IslandController) 
     // ----- Agenda -----
 
     private fun createEventCommand(raw: String, n: String): String? {
-        if (!Regex("^(ei )?(me )?(marca|marcar|agenda|agendar|cria|criar|adiciona|adicionar|anota|anotar|coloca|colocar|lembra|lembrar|lembrete)\\b").containsMatchIn(n)) return null
-        if (Regex("\\b(timer|temporizador|alarme|despertador)\\b").containsMatchIn(n)) return null
+        val verb = Regex("^(ei )?(me )?(marca|marcar|agenda|agendar|cria|criar|adiciona|adicionar|anota|anotar|salva|salvar|guarda|guardar|coloca na agenda|colocar na agenda|lembra|lembrar|lembrete)\\b").find(n)
+            ?: return null
+        if (Regex("\\b(timer|temporizador|alarme|despertador|nota)\\b").containsMatchIn(n)) return null
         val parsed = WhenParser.parse(raw)
+        // "anota comprar pão" (sem data) é nota, não compromisso.
+        if (parsed == null && Regex("(anota|salva|guarda|lembra)").containsMatchIn(verb.value)) return null
         // "agenda de amanhã" é pergunta, não pedido para marcar.
         if (n.startsWith("agenda") && (parsed == null || parsed.title == "Compromisso")) return null
         if (parsed == null) return "Para quando? Diga por exemplo: marca dentista sexta às 10."
@@ -389,25 +400,144 @@ class Assistant(private val ctx: Context, private val island: IslandController) 
 
     private fun timerCommand(n: String): String? {
         if (!Regex("\\b(timer|temporizador|cronometro|contagem)\\b").containsMatchIn(n)) return null
-        val m = Regex("(\\d+|um|uma|dois|duas|tres|meia)\\s*(segundo|minuto|hora)").find(n)
-            ?: return "Quanto tempo? Diga por exemplo: timer de 5 minutos."
-        val amount = when (val word = m.groupValues[1]) {
-            "um", "uma" -> 1
-            "dois", "duas" -> 2
-            "tres" -> 3
-            "meia" -> 30
-            else -> word.toInt()
+        if (Regex("^(para|parar|pare|cancela|cancelar)\\b").containsMatchIn(n)) {
+            val t = Timers.primary() ?: return "Não tem nenhum timer rodando."
+            if (Timers.ringing != null) Timers.stopRinging() else Timers.stop(t)
+            return "Timer parado."
         }
-        val seconds = when (m.groupValues[2]) {
-            "segundo" -> amount
-            "minuto" -> amount * 60
-            else -> if (m.groupValues[1] == "meia") 30 * 60 else amount * 3600
+        var seconds = 0L
+        Regex("(\\d+|um|uma|dois|duas|tres|meia)\\s*(segundo|minuto|hora)s?").findAll(n).forEach { m ->
+            val amount = when (val word = m.groupValues[1]) {
+                "um", "uma" -> 1L
+                "dois", "duas" -> 2L
+                "tres" -> 3L
+                "meia" -> 30L
+                else -> word.toLong()
+            }
+            seconds += when (m.groupValues[2]) {
+                "segundo" -> amount
+                "minuto" -> amount * 60
+                else -> if (m.groupValues[1] == "meia") 30 * 60 else amount * 3600
+            }
         }
-        val intent = Intent(AlarmClock.ACTION_SET_TIMER)
-            .putExtra(AlarmClock.EXTRA_LENGTH, seconds)
-            .putExtra(AlarmClock.EXTRA_MESSAGE, prefs.assistantName)
-            .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
-        return if (start(intent)) "Timer de ${m.value} começando agora." else "Não achei um app de relógio para o timer."
+        if (n.contains("e meia") && seconds in 60..3599) seconds += 30 // "2 minutos e meia" ~ "2 e meio"
+        if (seconds <= 0) return "Quanto tempo? Diga por exemplo: timer de 5 minutos."
+        val label = Regex("\\b(?:para|pra|pro) (?:o |a )?(.+)$").find(n)?.groupValues?.get(1)
+            ?.replaceFirstChar { it.uppercase() } ?: "Timer de ${Timers.format(seconds * 1000)}"
+        Timers.start(seconds, label)
+        IslandHub.main.post { island.showTimers() }
+        return "Timer de ${describeSeconds(seconds)} começando agora."
+    }
+
+    private fun describeSeconds(s: Long): String = when {
+        s % 3600 == 0L -> "${s / 3600} hora" + if (s / 3600 > 1) "s" else ""
+        s % 60 == 0L -> "${s / 60} minuto" + if (s / 60 > 1) "s" else ""
+        s < 60 -> "$s segundos"
+        else -> "${s / 60} minutos e ${s % 60} segundos"
+    }
+
+    // ----- Saudação -----
+
+    private fun greetingCommand(n: String): String? {
+        if (!Regex("^(oi|ola|ei|hey|e ai|bom dia|boa tarde|boa noite)( assistente| ${normalize(prefs.assistantName)})?$").matches(n)) return null
+        return "Oi! Pode falar: marcar compromisso, anotar, timer, mensagem, rota... o que precisar."
+    }
+
+    // ----- Notas -----
+
+    private fun notesCommand(raw: String, n: String): String? {
+        val notes = island.notes
+        if (Regex("^(abre|abrir|mostra|mostrar|ver) (o |as |meu |minhas )?(bloco de notas|notas)").containsMatchIn(n)) {
+            IslandHub.main.post { island.showNotes() }
+            return "Aqui estão suas notas."
+        }
+        if (Regex("^(minhas notas|quais (sao )?(as )?minhas notas|le (as )?minhas notas|ler (as )?(minhas )?notas)").containsMatchIn(n)) {
+            val all = notes.all()
+            if (all.isEmpty()) return "Você não tem notas ainda."
+            return "Suas últimas notas: " + all.take(3).joinToString("; ") { it.text } + "."
+        }
+        val m = Regex("(?iU)^(?:ei\\s+)?(?:me\\s+)?(?:anota(?:r)?|anote|cria(?:r)?\\s+uma\\s+nota|salva(?:r)?\\s+(?:uma\\s+)?nota|guarda(?:r)?|nova\\s+nota|escreve(?:r)?\\s+(?:uma\\s+)?nota|bloco\\s+de\\s+notas)\\s*(?:a[ií]\\s+|que\\s+|:\\s*|dizendo\\s+)?(.+)$")
+            .find(raw.trim()) ?: return null
+        val text = m.groupValues[1].trim().trimEnd('.', '!').replaceFirstChar { it.uppercase() }
+        if (text.isBlank()) return "O que eu anoto?"
+        notes.add(text)
+        IslandHub.main.post { island.showNotes() }
+        return "Anotei: $text."
+    }
+
+    // ----- Conta rápida -----
+
+    private fun mathCommand(raw: String, n: String): String? {
+        if (!Regex("\\b(quanto|calcula|calcular|conta)\\b").containsMatchIn(n) && !Regex("^[\\d\\s.,+*/x%-]+$").matches(raw.trim())) return null
+        val s = raw.lowercase(Locale.ROOT)
+        fun num(t: String) = t.replace(".", "").replace(',', '.').toDouble()
+        Regex("(\\d+(?:[.,]\\d+)?)\\s*(?:%|por cento)\\s*de\\s*(\\d+(?:[.,]\\d+)?)").find(s)?.let {
+            val r = num(it.groupValues[1]) / 100.0 * num(it.groupValues[2])
+            return "${it.groupValues[1]}% de ${it.groupValues[2]} é ${fmt(r)}."
+        }
+        val m = Regex("(\\d+(?:[.,]\\d+)?)\\s*(mais|\\+|menos|-|vezes|x|\\*|multiplicado por|dividido por|/|÷)\\s*(\\d+(?:[.,]\\d+)?)").find(s)
+            ?: return null
+        val a = num(m.groupValues[1])
+        val b = num(m.groupValues[3])
+        val r = when (m.groupValues[2]) {
+            "mais", "+" -> a + b
+            "menos", "-" -> a - b
+            "vezes", "x", "*", "multiplicado por" -> a * b
+            else -> if (b == 0.0) return "Não dá para dividir por zero." else a / b
+        }
+        return "Dá ${fmt(r)}."
+    }
+
+    private fun fmt(v: Double): String =
+        if (v == Math.floor(v) && kotlin.math.abs(v) < 1e15) String.format(ptBR, "%,.0f", v) else String.format(ptBR, "%,.2f", v)
+
+    // ----- Mapa, corrida e música -----
+
+    private fun navigationCommand(raw: String): String? {
+        val m = Regex("(?iU)^(?:me\\s+)?(?:leva|levar|leve|navega(?:r)?|navegue|vai|ir|rota|tra[çc]a(?:r)?\\s+(?:a\\s+|uma\\s+)?rota|como\\s+(?:eu\\s+)?chego)\\s+(?:para|pra|pro|at[ée]|ao|à|a|no|na|em)\\s+(.+)$")
+            .find(raw.trim()) ?: return null
+        val dest = m.groupValues[1].trim().trimEnd('.', '?', '!')
+        val nav = Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=" + Uri.encode(dest)))
+        if (island.open(nav)) return "Abrindo o caminho até $dest."
+        return if (island.open(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=" + Uri.encode(dest))))) "Abri o mapa com $dest." else "Não achei um app de mapas."
+    }
+
+    private fun rideCommand(raw: String, n: String): String? {
+        val m = Regex("^(chama|chamar|pede|pedir|solicita) (um |uma )?(uber|99|noventa e nove|taxi|carro)").find(n) ?: return null
+        val dest = Regex("(?iU)\\b(?:para|pra|at[ée])\\s+(.+)$").find(raw.trim())?.groupValues?.get(1)?.trimEnd('.', '!')
+        if (m.groupValues[3] == "99" || m.groupValues[3] == "noventa e nove") {
+            val i = ctx.packageManager.getLaunchIntentForPackage("com.taxis99")
+            return if (i != null && island.open(i)) "Abrindo o 99." else "Não achei o app 99 instalado."
+        }
+        val q = if (dest != null) "&dropoff[formatted_address]=" + Uri.encode(dest) else ""
+        val uber = Intent(Intent.ACTION_VIEW, Uri.parse("uber://?action=setPickup&pickup=my_location$q"))
+        if (island.open(uber)) return if (dest != null) "Abrindo o Uber para $dest." else "Abrindo o Uber."
+        return if (island.open(Intent(Intent.ACTION_VIEW, Uri.parse("https://m.uber.com/ul/?action=setPickup&pickup=my_location$q")))) "Abrindo o Uber." else "Não consegui abrir o Uber."
+    }
+
+    private fun playSearchCommand(raw: String, n: String): String? {
+        val m = Regex("(?iU)^(?:toca|tocar|toque|coloca|bota|p[õo]e|ouvir|quero ouvir)\\s+(?:a\\s+)?(?:m[úu]sica\\s+|as\\s+m[úu]sicas\\s+(?:de|do|da)\\s+|uma\\s+m[úu]sica\\s+(?:de|do|da)\\s+)?(.+)$")
+            .find(raw.trim()) ?: return null
+        var q = m.groupValues[1].trim().trimEnd('.', '!')
+        val qn = normalize(q)
+        if (qn.isEmpty() || qn in setOf("musica", "a musica", "de novo", "ai", "o som")) return null
+        var pkg: String? = null
+        var web: String? = null
+        when {
+            qn.endsWith("no spotify") -> pkg = "com.spotify.music"
+            qn.endsWith("no youtube music") -> pkg = "com.google.android.apps.youtube.music"
+            qn.endsWith("no youtube") -> web = "https://www.youtube.com/results?search_query="
+            qn.endsWith("no deezer") -> pkg = "deezer.android.app"
+        }
+        q = q.replace(Regex("(?iU)\\s+no\\s+(spotify|youtube music|youtube|deezer)$"), "").trim()
+        if (web != null) {
+            return if (island.open(Intent(Intent.ACTION_VIEW, Uri.parse(web + Uri.encode(q))))) "Procurando $q no YouTube." else "Não consegui abrir o YouTube."
+        }
+        val intent = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH)
+            .putExtra(SearchManager.QUERY, q)
+            .putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/*")
+        if (pkg != null) intent.setPackage(pkg)
+        return if (island.open(intent)) "Tocando $q." else "Não achei um app de música para tocar $q."
     }
 
     private fun alarmCommand(n: String): String? {
@@ -479,10 +609,10 @@ class Assistant(private val ctx: Context, private val island: IslandController) 
     companion object {
         private const val NO_MUSIC = "Não tem nenhum player de música aberto (ou falta o acesso às notificações)."
         private const val HELP =
-            "Posso marcar compromissos (\"marca dentista sexta às 10\"), dizer sua agenda, ligar e mandar WhatsApp " +
-                "para seus contatos, mexer no volume, brilho, lanterna e modo vibrar, abrir Wi-Fi e Bluetooth, " +
-                "controlar a música, criar timer e alarme, abrir apps e ler notificações. Com a chave do Claude, " +
-                "respondo qualquer pergunta e busco clima e notícias."
+            "Posso salvar compromissos (\"salva dia 29 eu vou viajar\"), anotar coisas, criar timers na ilha, " +
+                "dizer sua agenda, ligar e mandar WhatsApp, traçar rotas, chamar Uber, tocar músicas, fazer contas, " +
+                "mexer no volume, brilho, lanterna e modo vibrar, criar alarmes, abrir apps e ler notificações. " +
+                "Com a chave do Claude, respondo qualquer pergunta e busco clima e notícias."
 
         fun normalize(s: String): String =
             Normalizer.normalize(s.lowercase(Locale.ROOT), Normalizer.Form.NFD)

@@ -28,6 +28,25 @@ object IslandHub {
 
     var notificationWatcher: NotificationWatcher? = null
 
+    /** Serviço em primeiro plano (mantém tudo vivo e cuida do "Oi assistente"). */
+    var service: IslandService? = null
+
+    /** true quando a ilha está hospedada pelo serviço de acessibilidade (toque perfeito no topo). */
+    var accessibilityHost = false
+
+    /** Palavra de ativação "Oi assistente". */
+    var wake: WakeWord? = null
+
+    /** Solta o microfone enquanto a assistente escuta o comando. */
+    fun pauseWake() {
+        wake?.stop()
+    }
+
+    /** Volta a escutar "Oi assistente" depois que o comando terminou. */
+    fun resumeWake(delayMs: Long = 900) {
+        main.postDelayed({ service?.startWakeIfEnabled() }, delayMs)
+    }
+
     /** Últimas notificações, mais recente primeiro. */
     val recent = ArrayDeque<NotificationInfo>()
 

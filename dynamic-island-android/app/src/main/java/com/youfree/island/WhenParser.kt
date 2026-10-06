@@ -17,7 +17,7 @@ object WhenParser {
     )
 
     private val COMMAND = Regex(
-        "(?U)^(?:ei\\s+)?(?:me\\s+)?(?:marca(?:r)?|agenda(?:r)?|cria(?:r)?|adiciona(?:r)?|anota(?:r)?|coloca(?:r)?|" +
+        "(?U)^(?:ei\\s+)?(?:me\\s+)?(?:marca(?:r)?|agenda(?:r)?|cria(?:r)?|adiciona(?:r)?|anota(?:r)?|coloca(?:r)?|salva(?:r)?|guarda(?:r)?|" +
             "lembra(?:r)?(?:-me|\\s+me)?|lembrete)\\b\\s*(?:na\\s+(?:minha\\s+)?agenda\\s*)?" +
             "(?:(?:um|uma)\\s+)?(?:(?:evento|compromisso|lembrete)\\s+)?(?:(?:de|para|pra|que)\\s+)?",
     )
@@ -185,6 +185,10 @@ object WhenParser {
         var t = rest.replace(Regex("(?U)\\s+"), " ").trim()
         val edge = Regex("(?U)^(?:de|da|do|para|pra|que|às|as|a|o|e|em|no|na)\\s+|\\s+(?:de|da|do|para|pra|às|as|a|o|e|em|no|na)$")
         repeat(4) { t = t.replace(edge, "").trim() }
+        // "eu vou viajar" -> "Viajar"; "que eu tenho dentista" -> "Dentista"
+        repeat(2) {
+            t = t.replace(Regex("(?iU)^(?:que\\s+)?(?:eu\\s+)?(?:vou|vamos|tenho\\s+que|tenho|preciso|devo)\\s+"), "").trim()
+        }
         if (t.isEmpty()) return "Compromisso"
         return t.replaceFirstChar { it.uppercase() }
     }

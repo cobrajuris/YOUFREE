@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Ilha Assistente</string>
+    <string name="accessibility_description">Deixa a Ilha Dinâmica acima da barra de status, para o toque funcionar perfeitamente em volta da câmera, e mostra prévias na tela de bloqueio. Não lê o conteúdo da tela.</string>
 </resources>

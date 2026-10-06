@@ -2,6 +2,7 @@ package com.youfree.island
 
 import android.animation.ValueAnimator
 import android.app.ActivityOptions
+import android.app.KeyguardManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.ComponentName
@@ -9,11 +10,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.content.res.ColorStateList
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.graphics.RenderEffect
+import android.graphics.Shader
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.media.MediaMetadata
@@ -36,102 +39,93 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * A ilha lateral. Fica presa na borda da tela em três formas:
- *  - TAB: uma alcinha discreta na borda (arraste para cima/baixo para mudar de lugar);
- *  - DOCK: a coluna de status (hora, sinal, Wi-Fi, brilho, volume, bateria, agenda...);
- *  - CARD: um cartão que sai da borda (notificação, agenda, controles, música, assistente).
- * Visual inspirado no modo escuro da Apple: preto profundo, fio de luz na borda,
- * tipografia Inter, molas e vibração leve. Tudo roda na thread principal.
+ * A Ilha Dinâmica: uma pílula preta flutuando em volta da câmera frontal, como no iPhone.
+ *
+ *  - Repouso: só a pílula em volta da câmera.
+ *  - Compacta (atividade ao vivo): conteúdo dos DOIS LADOS da câmera, nunca em cima dela
+ *    (timer, música, próximo compromisso, carregando).
+ *  - Expandida: ao tocar, cresce num cartão arredondado. A primeira linha fica na altura da
+ *    câmera, com coisas à esquerda e à direita dela; o resto desce embaixo.
+ *
+ * Toque = expandir · Segurar = falar com a assistente · Puxar para baixo = expandir ·
+ * Puxar para cima / tocar fora = recolher. Tudo roda na thread principal.
  */
-class IslandController(private val ctx: Context) {
+class IslandController(private val ctx: Context, private val windowType: Int) {
 
-    private enum class Mode { TAB, DOCK, CARD }
-    private enum class Card { NONE, HUB, NOTIFICATION, CALENDAR, CONTROLS, MUSIC, ASSISTANT, EVENT_SOON, INFO }
+    private enum class Kind { NONE, VOICE, TIMER, MUSIC, EVENT, CHARGING, NOTIFICATION, INFO, HOME, CONTROLS, CALENDAR, NOTES }
+    private enum class VoiceState { LISTENING, THINKING, ANSWER }
 
     private val prefs = Prefs(ctx)
     private val wm = ctx.getSystemService(WindowManager::class.java)!!
     private val main = IslandHub.main
+    private val ptBR = Locale.forLanguageTag("pt-BR")
     val status = DeviceStatus(ctx)
     val calendar = CalendarRepo(ctx)
+    val notes = Notes(ctx)
     val assistant = Assistant(ctx, this)
 
-    private val ptBR = Locale.forLanguageTag("pt-BR")
+    /** Sem acessibilidade a barra de status fica por cima: uma faixa invisível embaixo recebe o toque. */
+    private val needsCatcher = windowType != WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+
     private var attached = false
-    private var mode = Mode.TAB
-    private var card = Card.NONE
-    private var busy = false // ouvindo ou pensando: não esconder sozinha
-    private var unread = false
-    private var rightSide = prefs.rightSide
-    private var onTop = prefs.islandOnTop
+    private var expanded: Kind? = null
+    private var shownKey = ""
+    private var compactTransient: Kind? = null
+    private var notification: NotificationInfo? = null
+    private var info: Triple<Int, String, String>? = null // ícone, título, texto
+    private var infoColor = Ui.INDIGO
 
-    // Câmera frontal (furo na tela), em pixels. Preenchido por computeCutout().
-    private var holeCx = 0
-    private var holeW = 0
-    private var holeBottom = 0
-    private var statusBarH = 0
-    private var liveKey = ""
-    private var lastNotification: NotificationInfo? = null
+    private var voiceState = VoiceState.LISTENING
+    private var voiceHeard = ""
+    private var voiceAnswer = ""
+    private var voiceLevel = 0f
+    private var busy = false
+    private var nextEvent: CalEvent? = null
+    private val remindedEvents = HashSet<String>()
 
-    // ---------- Medidas ----------
+    /** Atualiza textos que mudam sozinhos (timer, progresso da música, minutos) sem recriar a tela. */
+    private var updater: (() -> Unit)? = null
+
+    // ---------- Câmera / medidas ----------
     private fun dp(v: Int) = Ui.dp(ctx, v)
-    private val hidden = dp(30) // pedaço que fica fora da tela, para esconder os cantos externos
-    private val tabW = dp(9)
-    private val tabH = dp(84)
-    private val dockW = dp(64)
+    private var holeCx = 0
+    private var holeCy = 0
+    private var holeW = 0
+    private var holeH = 0
 
-    // ---------- Views ----------
-    private val background = Ui.rounded(Ui.ISLAND, hidden.toFloat(), Ui.HAIRLINE, Math.max(1, dp(1) / 2))
-    private val root = FrameLayout(ctx)
-    private val tabLayer = FrameLayout(ctx)
-    private val tabIndicator = View(ctx)
-    // Conteúdo "ao vivo" dos dois lados da câmera (ilha no topo): ex. capa da música | ondas.
-    private val topRow = LinearLayout(ctx)
-    private val topLeading = FrameLayout(ctx)
-    private val topGap = View(ctx)
-    private val topTrailing = FrameLayout(ctx)
-    private val dockLayer = LinearLayout(ctx)
-    private val cardLayer = FrameLayout(ctx)
+    private fun screenW(): Int = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) wm.currentWindowMetrics.bounds.width() else ctx.resources.displayMetrics.widthPixels
+    private fun screenH(): Int = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) wm.currentWindowMetrics.bounds.height() else ctx.resources.displayMetrics.heightPixels
 
-    private val dockHour = Ui.text(ctx, 18f, Color.WHITE, weight = Ui.Weight.DISPLAY)
-    private val dockMinute = Ui.text(ctx, 18f, Color.WHITE, weight = Ui.Weight.DISPLAY)
-    private val dockSignal = SignalView(ctx)
-    private val dockWifi = Ui.icon(ctx, R.drawable.ic_wifi)
-    private val dockBattery = BatteryView(ctx)
-    private val dockBatteryText = Ui.text(ctx, 11f, Ui.SECONDARY, weight = Ui.Weight.SEMIBOLD)
-    private val dockWeekday = Ui.text(ctx, 8.5f, Ui.RED, weight = Ui.Weight.BOLD)
-    private val dockDay = Ui.text(ctx, 16f, Color.WHITE, weight = Ui.Weight.DISPLAY)
-    private val dockFlash = Ui.icon(ctx, R.drawable.ic_flash)
-    private val dockMusic = Ui.icon(ctx, R.drawable.ic_music, Ui.GREEN)
-    private val dockOrb = OrbView(ctx)
-    private var dockMusicRow: View? = null
+    private fun pillH() = max(dp(34), holeH + dp(12))
+    private fun pillTop() = (holeCy - pillH() / 2).coerceAtLeast(dp(3))
+    private fun idleW() = max(dp(104), holeW + dp(56))
+    private fun compactW() = min(screenW() - dp(32), dp(246))
+    private fun expandedW() = min(screenW() - dp(12), dp(440))
+    private fun gap() = holeW + dp(26) // área livre em volta da câmera
+    private fun xFor(w: Int): Int {
+        val margin = dp(6)
+        return (holeCx - w / 2).coerceIn(margin, max(margin, screenW() - w - margin))
+    }
 
-    // Cartão do assistente (reaproveitado enquanto ele está aberto)
-    private var asstBody: TextView? = null
-    private var asstStatus: TextView? = null
-    private var asstOrb: OrbView? = null
-
-    // Cartão de música (atualiza a barra de progresso)
-    private var musicProgress: View? = null
-    private var musicElapsed: TextView? = null
-    private var musicRemaining: TextView? = null
-    private var musicPlayIcon: ImageView? = null
+    // ---------- Janela e views ----------
+    private val windowRoot = FrameLayout(ctx)
+    private val island = FrameLayout(ctx)
+    private val islandBg = Ui.rounded(Color.BLACK, dp(18).toFloat())
+    private var radius = dp(18).toFloat()
+    private var islandW = 0
+    private var islandH = 0
 
     private val params = WindowManager.LayoutParams(
-        hidden + tabW,
-        tabH,
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
-        },
+        dp(104), dp(34), windowType,
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
@@ -139,41 +133,33 @@ class IslandController(private val ctx: Context) {
             WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
         PixelFormat.TRANSLUCENT,
     ).apply {
-        title = "Ilha"
-        x = -hidden
-        // Deixa desenhar na faixa da câmera frontal.
+        gravity = Gravity.TOP or Gravity.START
+        title = "Ilha Dinâmica"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
     }
+    private var animator: ValueAnimator? = null
 
-    private var sizeAnimator: ValueAnimator? = null
-    private val autoHide = Runnable { if (!busy) showTab() }
-    private val dockTick = object : Runnable {
+    private val autoCollapse = Runnable { if (!busy) collapse() }
+    private val endCompactTransient = Runnable {
+        compactTransient = null
+        render()
+    }
+    private val ticker = object : Runnable {
         override fun run() {
-            if (mode == Mode.DOCK) {
-                refreshDock()
-                main.postDelayed(this, 3_000)
-            }
+            updater?.invoke()
+            main.postDelayed(this, 1_000)
         }
     }
-    private val musicTick = object : Runnable {
+    private val minuteTick = object : Runnable {
         override fun run() {
-            if (mode == Mode.CARD && card == Card.MUSIC) {
-                updateMusicProgress()
-                main.postDelayed(this, 1_000)
-            }
-        }
-    }
-    private val reminderTick = object : Runnable {
-        override fun run() {
-            checkEventReminders()
+            refreshNextEvent()
             main.postDelayed(this, 60_000)
         }
     }
-    private val remindedEvents = HashSet<String>()
 
     // ---------- Música ----------
     private val sessionManager = ctx.getSystemService(MediaSessionManager::class.java)!!
@@ -187,19 +173,24 @@ class IslandController(private val ctx: Context) {
         override fun onSessionDestroyed() = refreshMedia()
     }
 
-    // ---------- Carregador ----------
     private val powerReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            val pct = status.batteryPercent()
             when (intent.action) {
-                Intent.ACTION_POWER_CONNECTED -> showInfo(R.drawable.ic_flash, Ui.GREEN, "Carregando", "Bateria em $pct%")
-                Intent.ACTION_POWER_DISCONNECTED -> showInfo(R.drawable.ic_power, Ui.GRAY, "Carregador desconectado", "Bateria em $pct%")
+                Intent.ACTION_POWER_CONNECTED -> showCompactTransient(Kind.CHARGING, 4_500)
+                Intent.ACTION_POWER_DISCONNECTED -> if (compactTransient == Kind.CHARGING) {
+                    compactTransient = null
+                    render()
+                }
             }
         }
     }
 
     init {
-        buildViews()
+        island.background = islandBg
+        island.outlineProvider = ViewOutlineProvider.BACKGROUND
+        island.clipToOutline = true
+        windowRoot.addView(island, FrameLayout.LayoutParams(dp(104), dp(34), Gravity.TOP or Gravity.START))
+        setupTouches()
     }
 
     // =====================================================================
@@ -209,9 +200,16 @@ class IslandController(private val ctx: Context) {
     fun attach() {
         if (attached) return
         computeCutout()
-        applySide()
-        params.y = if (onTop) -hidden else tabY()
-        wm.addView(root, params)
+        params.width = idleW()
+        params.height = pillH()
+        params.x = xFor(params.width)
+        params.y = pillTop()
+        islandW = params.width
+        islandH = params.height
+        island.layoutParams = FrameLayout.LayoutParams(islandW, islandH, Gravity.TOP or Gravity.START)
+        radius = islandH / 2f
+        islandBg.cornerRadius = radius
+        wm.addView(windowRoot, params)
         attached = true
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_POWER_CONNECTED)
@@ -222,26 +220,27 @@ class IslandController(private val ctx: Context) {
         } else {
             ctx.registerReceiver(powerReceiver, filter)
         }
+        Timers.listener = { onTimersChanged() }
         refreshMedia()
-        onConfigurationChanged(ctx.resources.configuration)
-        // No Android 9 e 10 a posição da câmera só é conhecida depois que a janela entra na tela.
-        root.post {
-            val before = holeCx to holeBottom
-            computeCutout()
-            if (attached && mode == Mode.TAB && before != (holeCx to holeBottom)) showTab()
+        refreshNextEvent()
+        main.post(ticker)
+        main.postDelayed(minuteTick, 60_000)
+        windowRoot.post {
+            computeCutout() // no Android 9/10 a câmera só é conhecida depois de entrar na tela
+            render(force = true)
         }
-        main.postDelayed(reminderTick, 5_000)
-        showInfo(R.drawable.ic_sparkle, Ui.INDIGO, prefs.assistantName, "Estou aqui na borda. Toque na alcinha para abrir.")
+        showInfo(R.drawable.ic_sparkle, Ui.INDIGO, prefs.assistantName, "Pronta. Toque em mim ou diga \"Oi assistente\".")
     }
 
     fun detach() {
         if (!attached) return
         attached = false
-        main.removeCallbacks(autoHide)
-        main.removeCallbacks(dockTick)
-        main.removeCallbacks(musicTick)
-        main.removeCallbacks(reminderTick)
-        sizeAnimator?.cancel()
+        main.removeCallbacks(autoCollapse)
+        main.removeCallbacks(endCompactTransient)
+        main.removeCallbacks(ticker)
+        main.removeCallbacks(minuteTick)
+        animator?.cancel()
+        Timers.listener = null
         try {
             ctx.unregisterReceiver(powerReceiver)
         } catch (_: IllegalArgumentException) {
@@ -253,66 +252,107 @@ class IslandController(private val ctx: Context) {
         assistant.shutdown()
         status.release()
         try {
-            wm.removeView(root)
+            wm.removeView(windowRoot)
         } catch (_: IllegalArgumentException) {
         }
     }
 
     fun onConfigurationChanged(config: Configuration) {
-        // Na horizontal (vídeos, jogos) a ilha some para não atrapalhar.
-        root.visibility = if (config.orientation == Configuration.ORIENTATION_LANDSCAPE) View.GONE else View.VISIBLE
+        windowRoot.visibility = if (config.orientation == Configuration.ORIENTATION_LANDSCAPE) View.GONE else View.VISIBLE
         computeCutout()
-        if (attached) showTab()
+        if (attached) render(force = true)
     }
 
-    /** Reaplica lado e posição depois de mudar as configurações. */
     fun applyPrefs() {
-        rightSide = prefs.rightSide
-        onTop = prefs.islandOnTop
         computeCutout()
-        applySide()
-        if (attached) {
-            params.x = -hidden
-            params.y = if (onTop) -hidden else tabY()
-            wm.updateViewLayout(root, params)
-            showTab()
+        if (attached) render(force = true)
+    }
+
+    // =====================================================================
+    // Câmera frontal
+    // =====================================================================
+
+    private fun computeCutout() {
+        val sw = screenW()
+        var hole: Rect? = null
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val cutout = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    wm.currentWindowMetrics.windowInsets.displayCutout
+                } else {
+                    windowRoot.rootWindowInsets?.displayCutout
+                }
+                hole = cutout?.boundingRects?.firstOrNull { it.top <= dp(8) && it.height() < screenH() / 6 && it.width() < sw / 2 }
+            }
+        } catch (_: Exception) {
+        }
+        if (hole != null && !hole.isEmpty) {
+            holeCx = hole.centerX()
+            holeCy = hole.centerY()
+            holeW = hole.width().coerceAtMost(dp(60))
+            holeH = hole.height().coerceAtMost(dp(40))
+        } else {
+            @Suppress("DiscouragedApi")
+            val sbId = ctx.resources.getIdentifier("status_bar_height", "dimen", "android")
+            val sb = if (sbId > 0) ctx.resources.getDimensionPixelSize(sbId) else dp(28)
+            holeCx = sw / 2
+            holeH = dp(22)
+            holeW = dp(22)
+            holeCy = max(sb / 2, dp(16))
         }
     }
 
     // =====================================================================
-    // Entradas: notificações, avisos, assistente
+    // Entradas públicas (notificações, assistente, música...)
     // =====================================================================
 
     fun showNotification(info: NotificationInfo) {
         if (!prefs.showNotifications) return
-        lastNotification = info
-        if (onTop) unread = true
-        if (mode == Mode.CARD && card != Card.NOTIFICATION && card != Card.INFO) {
-            unread = true // a pessoa está usando outro cartão: só marca na alcinha
-            updateTabIndicator()
-            return
-        }
-        showCard(Card.NOTIFICATION, buildNotificationCard(info), autoHideMs = 6_500)
+        if (busy || Timers.ringing != null) return
+        notification = info
+        expand(Kind.NOTIFICATION, rebuild = true)
     }
 
     fun showDemo() {
-        showInfo(R.drawable.ic_sparkle, Ui.INDIGO, "Ilha Assistente", "Tudo certo! Toque na alcinha da borda para abrir.")
+        showInfo(R.drawable.ic_sparkle, Ui.INDIGO, "Ilha Dinâmica", "Tudo certo! Toque para abrir, segure para falar.")
     }
 
-    private fun showInfo(iconRes: Int, color: Int, title: String, body: String) {
-        if (mode == Mode.CARD && card != Card.INFO && card != Card.NOTIFICATION) return
-        showCard(Card.INFO, buildInfoCard(iconRes, color, title, body), autoHideMs = 3_800)
+    fun showInfo(iconRes: Int, color: Int, title: String, body: String) {
+        if (busy) return
+        val e = expanded
+        if (e != null && e != Kind.INFO && e != Kind.NOTIFICATION) return
+        info = Triple(iconRes, title, body)
+        infoColor = color
+        expand(Kind.INFO, rebuild = true)
     }
+
+    /** Mostra os timers na ilha (chamado pela assistente ao criar um timer). */
+    fun showTimers() {
+        expand(Kind.TIMER, rebuild = true)
+    }
+
+    fun showNotes() = expand(Kind.NOTES, rebuild = true)
+
+    fun showCalendar() = expand(Kind.CALENDAR, rebuild = true)
 
     fun startVoice() {
+        if (isLocked()) {
+            showInfo(R.drawable.ic_lock, Ui.GRAY, "Desbloqueie para falar", "Por segurança, a assistente só ouve com o celular desbloqueado.")
+            return
+        }
         busy = true
+        voiceState = VoiceState.LISTENING
+        voiceHeard = ""
+        voiceAnswer = ""
         assistant.stopSpeaking()
-        showAssistant("", OrbView.State.LISTENING, "Ouvindo…")
+        IslandHub.pauseWake()
+        expand(Kind.VOICE, rebuild = true)
         launchVoiceActivity(typing = false)
     }
 
     fun startTyping() {
         assistant.stopSpeaking()
+        IslandHub.pauseWake()
         launchVoiceActivity(typing = true)
     }
 
@@ -320,97 +360,104 @@ class IslandController(private val ctx: Context) {
         val intent = Intent(ctx, VoiceActivity::class.java)
             .putExtra(VoiceActivity.EXTRA_TYPING, typing)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
-        ctx.startActivity(intent)
+        try {
+            ctx.startActivity(intent)
+        } catch (_: Exception) {
+            busy = false
+            IslandHub.resumeWake()
+        }
     }
 
     fun onListening() {
         busy = true
-        asstOrb?.state = OrbView.State.LISTENING
-        asstStatus?.text = "Ouvindo…"
+        voiceState = VoiceState.LISTENING
+        if (expanded != Kind.VOICE) expand(Kind.VOICE, rebuild = true)
     }
 
     fun onVoiceLevel(rmsDb: Float) {
-        asstOrb?.level = (rmsDb + 2f) / 12f
+        voiceLevel = ((rmsDb + 2f) / 12f).coerceIn(0f, 1f)
+        siriWave?.level = voiceLevel
     }
 
     fun onPartial(text: String) {
-        if (text.isNotBlank()) setAssistantBody(text, quote = true)
+        if (text.isBlank()) return
+        voiceHeard = text
+        val v = voiceText ?: return
+        v.text = "“$text”"
+        if (v.visibility != View.VISIBLE) {
+            v.visibility = View.VISIBLE
+            resizeExpanded()
+        }
     }
 
     fun onUserSaid(text: String) {
         busy = true
-        if (card != Card.ASSISTANT || mode != Mode.CARD) {
-            showAssistant(text, OrbView.State.THINKING, "Pensando…", quote = true)
-        } else {
-            setAssistantBody(text, quote = true)
-            asstOrb?.state = OrbView.State.THINKING
-            asstOrb?.level = 0f
-            asstStatus?.text = "Pensando…"
-        }
+        voiceHeard = text
+        voiceAnswer = ""
+        voiceState = VoiceState.THINKING
+        expand(Kind.VOICE, rebuild = true)
         assistant.handle(text) { reply ->
             busy = false
-            if (card == Card.ASSISTANT && mode == Mode.CARD) {
-                setAssistantBody(reply, quote = false)
-                asstOrb?.state = OrbView.State.IDLE
-                asstStatus?.text = ""
-            } else {
-                showAssistant(reply, OrbView.State.IDLE, "")
-            }
+            voiceAnswer = reply
+            voiceState = VoiceState.ANSWER
+            if (expanded == Kind.VOICE) expand(Kind.VOICE, rebuild = true)
             if (prefs.speakReplies) assistant.speak(reply)
-            scheduleHide((reply.length * 70L).coerceIn(8_000L, 25_000L))
+            scheduleCollapse((reply.length * 70L).coerceIn(8_000L, 25_000L))
+            IslandHub.resumeWake(2_500)
         }
     }
 
     fun onVoiceError(message: String) {
         busy = false
-        if (card == Card.ASSISTANT && mode == Mode.CARD) {
-            setAssistantBody(message, quote = false)
-            asstOrb?.state = OrbView.State.IDLE
-            asstStatus?.text = ""
-        } else {
-            showAssistant(message, OrbView.State.IDLE, "")
-        }
-        scheduleHide(4_500)
+        voiceAnswer = message
+        voiceState = VoiceState.ANSWER
+        expand(Kind.VOICE, rebuild = true)
+        scheduleCollapse(4_500)
+        IslandHub.resumeWake()
     }
 
     fun onVoiceCancelled() {
         busy = false
-        showTab()
+        if (expanded == Kind.VOICE) collapse()
+        IslandHub.resumeWake()
     }
 
     fun onSpeaking(speaking: Boolean) {
-        if (card == Card.ASSISTANT && mode == Mode.CARD && !busy) {
-            asstOrb?.state = if (speaking) OrbView.State.SPEAKING else OrbView.State.IDLE
-        }
+        if (expanded == Kind.VOICE && !busy) siriWave?.active = speaking
     }
 
     /** Abre uma tela de outro app ou do sistema e recolhe a ilha. */
     fun open(intent: Intent): Boolean = try {
         ctx.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        showTab()
+        if (expanded != Kind.VOICE) collapse()
         true
     } catch (_: Exception) {
         false
     }
 
     // =====================================================================
-    // Agenda: aviso antes do compromisso
+    // Agenda
     // =====================================================================
 
-    private fun checkEventReminders() {
-        if (!attached || !prefs.eventReminders || !calendar.canRead()) return
-        val now = System.currentTimeMillis()
-        for (e in calendar.between(now, now + 11 * 60_000L, limit = 5)) {
-            if (e.allDay || e.begin < now) continue
-            val key = "${e.id}@${e.begin}"
-            if (!remindedEvents.add(key)) continue
-            val minutes = ((e.begin - now) / 60_000L).toInt().coerceAtLeast(1)
-            if (mode == Mode.CARD && busy) continue
-            showCard(Card.EVENT_SOON, buildEventSoonCard(e, minutes), autoHideMs = 10_000)
-            if (prefs.speakReplies) assistant.speak("Daqui a $minutes minutos: ${e.title}.")
-            break
+    private fun refreshNextEvent() {
+        if (!calendar.canRead()) {
+            nextEvent = null
+            return
         }
-        if (remindedEvents.size > 200) remindedEvents.clear()
+        val now = System.currentTimeMillis()
+        val e = calendar.between(now, now + 60 * 60_000L, limit = 3).firstOrNull { !it.allDay && it.begin > now }
+        val changed = e?.id != nextEvent?.id
+        nextEvent = e
+        if (e != null && prefs.eventReminders) {
+            val minutes = (e.begin - now) / 60_000L
+            val key = "${e.id}@${e.begin}"
+            if (minutes <= 10 && remindedEvents.add(key) && !busy && expanded == null) {
+                expand(Kind.EVENT, rebuild = true)
+                scheduleCollapse(9_000)
+                if (prefs.speakReplies) assistant.speak("Daqui a ${minutes.coerceAtLeast(1)} minutos: ${e.title}.")
+            }
+        }
+        if (changed && expanded == null) render()
     }
 
     // =====================================================================
@@ -425,13 +472,11 @@ class IslandController(private val ctx: Context) {
             }
             pickMedia(sessionManager.getActiveSessions(listenerComponent))
         } catch (_: SecurityException) {
-            // Sem acesso às notificações ainda: sem controle de música.
         }
     }
 
     private fun pickMedia(list: List<MediaController>?) {
-        val chosen = list?.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING }
-            ?: list?.firstOrNull()
+        val chosen = list?.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING } ?: list?.firstOrNull()
         if (chosen?.sessionToken != media?.sessionToken) {
             media?.unregisterCallback(mediaCallback)
             media = chosen
@@ -440,15 +485,15 @@ class IslandController(private val ctx: Context) {
         onMediaChanged()
     }
 
+    private var lastMusicKey = ""
+
     private fun onMediaChanged() {
         if (!attached) return
-        updateTabIndicator()
-        if (mode == Mode.TAB && onTop && liveKindKey() != liveKey) showTab()
-        dockMusicRow?.visibility = if (media?.metadata != null) View.VISIBLE else View.GONE
-        if (mode == Mode.CARD && card == Card.MUSIC) {
-            musicPlayIcon?.setImageResource(if (isMusicPlaying) R.drawable.ic_pause else R.drawable.ic_play)
-            updateMusicProgress()
-        }
+        val key = "$isMusicPlaying|${media?.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE)}"
+        if (key == lastMusicKey) return
+        lastMusicKey = key
+        cachedArtColor = null
+        if (expanded == Kind.MUSIC) expand(Kind.MUSIC, rebuild = true) else if (expanded == null) render()
     }
 
     val isMusicPlaying: Boolean
@@ -473,127 +518,158 @@ class IslandController(private val ctx: Context) {
     fun nextTrack(): Boolean = media?.transportControls?.skipToNext() != null
     fun previousTrack(): Boolean = media?.transportControls?.skipToPrevious() != null
 
-    // =====================================================================
-    // Formas da ilha
-    // =====================================================================
+    private fun artBitmap(): Bitmap? {
+        val meta = media?.metadata ?: return null
+        return meta.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) ?: meta.getBitmap(MediaMetadata.METADATA_KEY_ART)
+    }
 
-    private fun showTab() {
-        main.removeCallbacks(autoHide)
-        main.removeCallbacks(dockTick)
-        main.removeCallbacks(musicTick)
-        busy = false
-        card = Card.NONE
-        asstBody = null
-        asstStatus = null
-        asstOrb = null
-        updateTabIndicator()
-        if (onTop) {
-            fillTopRow()
-            transitionTo(Mode.TAB, topTabWidth(), topTabHeight())
-        } else {
-            transitionTo(Mode.TAB, tabW, tabH)
+    private fun artDrawable(): Drawable? {
+        artBitmap()?.let { return BitmapDrawable(ctx.resources, it) }
+        val pkg = media?.packageName ?: return null
+        return try {
+            ctx.packageManager.getApplicationIcon(pkg)
+        } catch (_: PackageManager.NameNotFoundException) {
+            null
         }
     }
 
-    private fun showDock() {
-        unread = false
-        if (onTop) {
-            showHub()
+    private var cachedArtColor: Int? = null
+
+    /** Cor viva tirada da capa do álbum (como as ondas coloridas do iPhone). */
+    private fun artColor(): Int {
+        cachedArtColor?.let { return it }
+        val bmp = artBitmap()
+        val c = if (bmp == null) {
+            Ui.GREEN
+        } else {
+            try {
+                val px = Bitmap.createScaledBitmap(bmp, 1, 1, true).getPixel(0, 0)
+                val hsv = FloatArray(3)
+                Color.colorToHSV(px, hsv)
+                hsv[1] = max(hsv[1], 0.5f)
+                hsv[2] = max(hsv[2], 0.9f)
+                Color.HSVToColor(hsv)
+            } catch (_: Exception) {
+                Ui.GREEN
+            }
+        }
+        cachedArtColor = c
+        return c
+    }
+
+    // =====================================================================
+    // Timers
+    // =====================================================================
+
+    private var lastTimerKey = ""
+
+    private fun onTimersChanged() {
+        if (!attached) return
+        val key = "${Timers.list.size}|${Timers.ringing?.id}|${Timers.list.count { it.paused }}"
+        if (Timers.ringing != null && expanded != Kind.TIMER && !busy) {
+            lastTimerKey = key
+            expand(Kind.TIMER, rebuild = true)
             return
         }
-        card = Card.NONE
-        refreshDock()
-        val h = measure(dockLayer, dockW)
-        transitionTo(Mode.DOCK, dockW, h)
-        Ui.stagger(dockLayer, 60)
-        main.removeCallbacks(dockTick)
-        main.postDelayed(dockTick, 3_000)
-        scheduleHide(7_000)
-    }
-
-    private fun showCard(kind: Card, content: ViewGroup, autoHideMs: Long) {
-        card = kind
-        if (kind != Card.ASSISTANT) {
-            asstBody = null
-            asstStatus = null
-            asstOrb = null
-        }
-        main.removeCallbacks(dockTick)
-        main.removeCallbacks(musicTick)
-        cardLayer.removeAllViews()
-        cardLayer.addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        val w = cardWidth()
-        transitionTo(Mode.CARD, w, measure(cardLayer, w))
-        Ui.stagger(content)
-        if (!busy) scheduleHide(autoHideMs)
-    }
-
-    private fun resizeCard() {
-        if (mode != Mode.CARD) return
-        val w = cardWidth()
-        transitionTo(Mode.CARD, w, measure(cardLayer, w))
-    }
-
-    private fun scheduleHide(ms: Long) {
-        main.removeCallbacks(autoHide)
-        main.postDelayed(autoHide, ms)
-    }
-
-    /** Qualquer toque dentro da ilha adia o recolhimento. */
-    private fun touched() {
-        if (mode != Mode.TAB && !busy) scheduleHide(if (mode == Mode.DOCK) 7_000 else 12_000)
-    }
-
-    private fun transitionTo(target: Mode, visibleW: Int, h: Int) {
-        val layer = when (target) {
-            Mode.TAB -> tabLayer
-            Mode.DOCK -> dockLayer
-            Mode.CARD -> cardLayer
-        }
-        layer.layoutParams = layerParams(visibleW, h)
-        if (target != mode) {
-            mode = target
-            for (other in listOf(tabLayer, dockLayer, cardLayer)) {
-                if (other === layer) continue
-                other.animate().cancel()
-                other.animate().setStartDelay(0).alpha(0f).setDuration(110).withEndAction {
-                    if (other !== currentLayer()) other.visibility = View.INVISIBLE
-                }.start()
+        if (key != lastTimerKey) {
+            lastTimerKey = key
+            if (expanded == Kind.TIMER) {
+                if (!Timers.active) collapse() else expand(Kind.TIMER, rebuild = true)
+            } else if (expanded == null) {
+                render()
             }
-            layer.visibility = View.VISIBLE
-            layer.alpha = 0f
-            // Conteúdo entra deslizando de dentro da borda.
-            if (onTop) {
-                layer.translationY = -Ui.dpf(ctx, 12f)
-            } else {
-                layer.translationX = Ui.dpf(ctx, 14f) * (if (rightSide) 1 else -1)
-            }
-        }
-        layer.animate().cancel()
-        layer.animate().setStartDelay(if (target == Mode.TAB) 0 else 80).alpha(1f).translationX(0f).translationY(0f)
-            .setDuration(420).setInterpolator(Ui.SPRING_SMOOTH).start()
-        if (onTop) {
-            // Presa no topo: o pedaço escondido fica acima da tela; os cantos de baixo arredondam.
-            val radius = if (target == Mode.TAB) min(hidden.toFloat(), h * 0.62f) else hidden.toFloat()
-            animateWindow(visibleW, hidden + h, clampX(visibleW), -hidden, radius)
         } else {
-            animateWindow(hidden + visibleW, h, -hidden, windowYFor(h), hidden.toFloat())
+            updater?.invoke()
         }
     }
 
-    private fun currentLayer(): View = when (mode) {
-        Mode.TAB -> tabLayer
-        Mode.DOCK -> dockLayer
-        Mode.CARD -> cardLayer
+    // =====================================================================
+    // Forma da ilha
+    // =====================================================================
+
+    private fun liveKind(): Kind = when {
+        Timers.active -> Kind.TIMER
+        isMusicPlaying -> Kind.MUSIC
+        nextEvent != null -> Kind.EVENT
+        else -> Kind.NONE
     }
 
-    /** As camadas ficam presas na borda da tela: o cartão "sai" de dentro da borda. */
-    private fun layerParams(w: Int, h: Int) = FrameLayout.LayoutParams(w, h).apply {
-        gravity = Gravity.TOP or when {
-            onTop -> Gravity.CENTER_HORIZONTAL
-            rightSide -> Gravity.END
-            else -> Gravity.START
+    private fun defaultExpandKind(): Kind = when (liveKind()) {
+        Kind.TIMER -> Kind.TIMER
+        Kind.MUSIC -> Kind.MUSIC
+        Kind.EVENT -> Kind.EVENT
+        else -> Kind.HOME
+    }
+
+    private fun showCompactTransient(kind: Kind, ms: Long) {
+        compactTransient = kind
+        main.removeCallbacks(endCompactTransient)
+        main.postDelayed(endCompactTransient, ms)
+        if (expanded == null) render()
+    }
+
+    private fun expand(kind: Kind, rebuild: Boolean = false) {
+        if (!attached) return
+        if (expanded == kind && !rebuild) {
+            touched()
+            return
         }
+        expanded = kind
+        val content = buildExpanded(kind)
+        val w = expandedW()
+        val h = measure(content, w)
+        show(content, "exp:$kind:${SystemClock.uptimeMillis()}", w, h, min(dp(42).toFloat(), h / 2f))
+        scheduleCollapse(
+            when (kind) {
+                Kind.VOICE -> if (busy) 60_000 else 12_000
+                Kind.INFO -> 3_800
+                Kind.NOTIFICATION -> 6_500
+                Kind.TIMER -> if (Timers.ringing != null) 65_000 else 8_000
+                else -> 10_000
+            },
+        )
+    }
+
+    fun collapse() {
+        if (expanded == null) return
+        if (expanded == Kind.TIMER && Timers.ringing != null) return
+        expanded = null
+        siriWave = null
+        voiceText = null
+        render(force = true)
+    }
+
+    /** Recalcula o que aparece quando a ilha não está expandida. */
+    private fun render(force: Boolean = false) {
+        if (!attached) return
+        expanded?.let {
+            if (force) expand(it, rebuild = true)
+            return
+        }
+        val kind = compactTransient ?: liveKind()
+        if (kind == Kind.NONE) {
+            updater = null
+            show(View(ctx), "idle", idleW(), pillH(), pillH() / 2f, force)
+            return
+        }
+        val row = buildCompact(kind)
+        show(row, "compact:$kind:${compactKey(kind)}", compactW(), pillH(), pillH() / 2f, force)
+    }
+
+    private fun compactKey(kind: Kind): String = when (kind) {
+        Kind.MUSIC -> media?.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE).orEmpty()
+        Kind.EVENT -> nextEvent?.id?.toString().orEmpty()
+        Kind.TIMER -> "${Timers.primary()?.id}|${Timers.ringing != null}"
+        else -> ""
+    }
+
+    private fun resizeExpanded() {
+        if (expanded == null || island.childCount == 0) return
+        val content = island.getChildAt(island.childCount - 1)
+        val w = expandedW()
+        val h = measure(content, w)
+        content.layoutParams = FrameLayout.LayoutParams(w, h, Gravity.TOP or Gravity.START)
+        animateTo(w, h, min(dp(42).toFloat(), h / 2f))
     }
 
     private fun measure(view: View, width: Int): Int {
@@ -601,312 +677,210 @@ class IslandController(private val ctx: Context) {
             View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
         )
-        return view.measuredHeight.coerceAtMost((screenHeight() * 0.8f).roundToInt())
+        return view.measuredHeight.coerceIn(pillH(), (screenH() * 0.75f).roundToInt())
     }
 
-    private var radius = hidden.toFloat()
+    /** Troca o conteúdo com animação: o antigo some, o novo aparece crescendo e saindo do desfoque. */
+    private fun show(content: View, key: String, w: Int, h: Int, r: Float, force: Boolean = false) {
+        if (key == shownKey && !force) {
+            animateTo(w, h, r)
+            return
+        }
+        shownKey = key
+        for (i in 0 until island.childCount) {
+            val old = island.getChildAt(i)
+            old.animate().cancel()
+            old.animate().alpha(0f).scaleX(0.94f).scaleY(0.94f).setStartDelay(0).setDuration(120)
+                .withEndAction { island.removeView(old) }.start()
+        }
+        content.layoutParams = FrameLayout.LayoutParams(w, h, Gravity.TOP or Gravity.START)
+        content.pivotX = (holeCx - xFor(w)).toFloat()
+        content.pivotY = 0f
+        content.alpha = 0f
+        content.scaleX = 0.9f
+        content.scaleY = 0.9f
+        island.addView(content)
+        content.animate().alpha(1f).scaleX(1f).scaleY(1f).setStartDelay(90).setDuration(420).setInterpolator(Ui.SPRING_SMOOTH).start()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            ValueAnimator.ofFloat(18f, 0f).apply {
+                duration = 420
+                startDelay = 90
+                addUpdateListener {
+                    val b = it.animatedValue as Float
+                    content.setRenderEffect(if (b < 0.5f) null else RenderEffect.createBlurEffect(b, b, Shader.TileMode.CLAMP))
+                }
+                start()
+            }
+        }
+        animateTo(w, h, r)
+    }
 
-    private fun animateWindow(w: Int, h: Int, x: Int, y: Int, r: Float) {
-        sizeAnimator?.cancel()
-        val sw = params.width
-        val sh = params.height
+    private fun animateTo(w: Int, h: Int, r: Float) {
+        animator?.cancel()
+        val catcher = if (needsCatcher && expanded == null) dp(22) else 0
         val sx = params.x
-        val sy = params.y
+        val sw = islandW
+        val sh = islandH
         val sr = radius
-        if (sw == w && sh == h && sx == x && sy == y && sr == r) return
-        sizeAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 560
+        val tx = xFor(w)
+        params.y = pillTop()
+        if (sw == w && sh == h && sx == tx && sr == r && params.height == h + catcher) return
+        animator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 600
             interpolator = Ui.SPRING_ISLAND
             addUpdateListener { a ->
                 val t = a.animatedValue as Float
-                val tc = t.coerceAtMost(1f)
-                params.width = (sw + (w - sw) * t).roundToInt().coerceAtLeast(1)
-                params.height = (sh + (h - sh) * t).roundToInt().coerceAtLeast(1)
-                params.x = (sx + (x - sx) * tc).roundToInt()
-                params.y = (sy + (y - sy) * tc).roundToInt()
-                radius = sr + (r - sr) * tc
-                background.cornerRadius = radius
-                root.invalidateOutline()
-                if (attached) wm.updateViewLayout(root, params)
+                val tc = t.coerceIn(0f, 1f)
+                islandW = (sw + (w - sw) * t).roundToInt().coerceAtLeast(1)
+                islandH = (sh + (h - sh) * t).roundToInt().coerceAtLeast(1)
+                radius = (sr + (r - sr) * tc).coerceAtMost(islandH / 2f)
+                params.x = (sx + (tx - sx) * tc).roundToInt()
+                params.width = islandW
+                params.height = islandH + catcher
+                islandBg.cornerRadius = radius
+                island.layoutParams = FrameLayout.LayoutParams(islandW, islandH, Gravity.TOP or Gravity.START)
+                island.invalidateOutline()
+                if (attached) wm.updateViewLayout(windowRoot, params)
             }
             start()
         }
     }
 
-    // ---------- Posição ----------
-
-    private fun screenHeight(): Int =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) wm.currentWindowMetrics.bounds.height()
-        else ctx.resources.displayMetrics.heightPixels
-
-    private fun screenWidth(): Int =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) wm.currentWindowMetrics.bounds.width()
-        else ctx.resources.displayMetrics.widthPixels
-
-    private fun tabY(): Int {
-        val top = dp(48)
-        val range = (screenHeight() - tabH - dp(96) - top).coerceAtLeast(0)
-        return top + (range * prefs.positionY).roundToInt()
+    private fun scheduleCollapse(ms: Long) {
+        main.removeCallbacks(autoCollapse)
+        main.postDelayed(autoCollapse, ms)
     }
 
-    /** Abre centralizado na alcinha, sem sair da tela. */
-    private fun windowYFor(h: Int): Int {
-        val center = tabY() + tabH / 2
-        val minY = dp(36)
-        val maxY = (screenHeight() - h - dp(56)).coerceAtLeast(minY)
-        return (center - h / 2).coerceIn(minY, maxY)
-    }
-
-    private fun cardWidth(): Int =
-        if (onTop) min(screenWidth() - dp(16), dp(420)) else min((screenWidth() * 0.88f).roundToInt(), dp(352))
-
-    // ---------- Ilha no topo, em volta da câmera ----------
-
-    /** Descobre onde fica a câmera frontal (furo na tela) para centralizar e dimensionar a ilha. */
-    private fun computeCutout() {
-        val sw = screenWidth()
-        @Suppress("DiscouragedApi")
-        val sbId = ctx.resources.getIdentifier("status_bar_height", "dimen", "android")
-        statusBarH = if (sbId > 0) ctx.resources.getDimensionPixelSize(sbId) else dp(28)
-        var hole: Rect? = null
-        try {
-            val cutout = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                wm.currentWindowMetrics.windowInsets.displayCutout
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                root.rootWindowInsets?.displayCutout
-            } else {
-                null
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                hole = cutout?.boundingRects?.firstOrNull { it.top <= dp(4) && it.height() < screenHeight() / 5 }
-            }
-        } catch (_: Exception) {
-        }
-        if (hole != null && !hole.isEmpty) {
-            holeCx = hole.centerX()
-            holeW = hole.width().coerceAtMost(dp(140))
-            holeBottom = hole.bottom
-        } else {
-            holeCx = sw / 2
-            holeW = dp(26)
-            holeBottom = statusBarH
+    private fun touched() {
+        if (expanded != null && !busy) {
+            scheduleCollapse(
+                when (expanded) {
+                    Kind.NOTIFICATION -> 8_000
+                    Kind.INFO -> 4_000
+                    Kind.TIMER -> if (Timers.ringing != null) 65_000 else 10_000
+                    else -> 10_000
+                },
+            )
         }
     }
 
-    /** Desce um pouco abaixo da barra de status: essa parte de baixo é a que recebe o toque. */
-    private fun topTabHeight(): Int = maxOf(holeBottom, statusBarH) + dp(14)
+    private fun isLocked(): Boolean = ctx.getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
 
-    private fun topTabWidth(): Int {
-        val base = holeW + dp(44)
-        return if (liveKindKey().isEmpty()) base.coerceAtLeast(dp(84)) else holeW + dp(150)
+    // =====================================================================
+    // Conteúdo compacto (dos dois lados da câmera)
+    // =====================================================================
+
+    private fun cameraRow(width: Int, height: Int): CameraRow = CameraRow(ctx).apply {
+        cameraX = holeCx - xFor(width)
+        gap = gap()
+        sidePadding = dp(12)
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, height)
     }
 
-    /** Centraliza na câmera sem deixar sair da tela. */
-    private fun clampX(w: Int): Int {
-        val sw = screenWidth()
-        val offset = holeCx - sw / 2
-        val max = ((sw - w) / 2).coerceAtLeast(0)
-        return offset.coerceIn(-max, max)
-    }
-
-    /** Qual "atividade ao vivo" aparece dos lados da câmera. */
-    private fun liveKindKey(): String = when {
-        unread && lastNotification != null -> "msg:" + lastNotification?.packageName
-        isMusicPlaying -> "music:" + (media?.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: "")
-        else -> ""
-    }
-
-    private fun fillTopRow() {
-        liveKey = liveKindKey()
-        topLeading.removeAllViews()
-        topTrailing.removeAllViews()
-        val gapW = holeW + dp(16)
-        topGap.layoutParams = LinearLayout.LayoutParams(gapW, 1)
-        val size = (holeBottom - dp(6)).coerceIn(dp(18), dp(26))
-        when {
-            liveKey.startsWith("msg:") -> {
-                val info = lastNotification
-                topLeading.addView(Ui.appIcon(ctx, 22).apply { setImageDrawable(info?.icon) },
-                    FrameLayout.LayoutParams(size, size, Gravity.CENTER_VERTICAL or Gravity.START).apply { marginStart = dp(14) })
-                topTrailing.addView(View(ctx).apply { background = Ui.oval(Ui.BLUE) },
-                    FrameLayout.LayoutParams(dp(9), dp(9), Gravity.CENTER_VERTICAL or Gravity.END).apply { marginEnd = dp(18) })
+    private fun buildCompact(kind: Kind): View {
+        val w = compactW()
+        val row = cameraRow(w, pillH())
+        updater = null
+        when (kind) {
+            Kind.TIMER -> {
+                val t = Timers.primary()
+                val ringing = Timers.ringing != null
+                val lead = Ui.iconTile(ctx, R.drawable.ic_timer, if (ringing) Ui.RED else Ui.ORANGE, 22, 14)
+                val trail = Ui.text(ctx, 16f, if (ringing) Ui.RED else Ui.ORANGE, value = t?.let { Timers.format(it.leftMs()) } ?: "", weight = Ui.Weight.DISPLAY_SEMIBOLD).apply {
+                    fontFeatureSettings = "tnum"
+                }
+                row.set(lead, trail)
+                updater = { Timers.primary()?.let { trail.text = Timers.format(it.leftMs()) } }
             }
-            liveKey.startsWith("music:") -> {
-                topLeading.addView(ImageView(ctx).apply {
-                    setImageDrawable(mediaArtwork())
+            Kind.MUSIC -> {
+                val art = ImageView(ctx).apply {
+                    setImageDrawable(artDrawable())
                     scaleType = ImageView.ScaleType.CENTER_CROP
                     Ui.clipRound(this, Ui.dpf(ctx, 6f), Ui.SURFACE)
-                }, FrameLayout.LayoutParams(size, size, Gravity.CENTER_VERTICAL or Gravity.START).apply { marginStart = dp(14) })
-                topTrailing.addView(WaveView(ctx).apply {
-                    color = Ui.GREEN
+                    layoutParams = ViewGroup.LayoutParams(dp(22), dp(22))
+                }
+                val wave = WaveView(ctx).apply {
+                    color = artColor()
                     active = true
-                }, FrameLayout.LayoutParams(dp(20), dp(14), Gravity.CENTER_VERTICAL or Gravity.END).apply { marginEnd = dp(16) })
+                    layoutParams = ViewGroup.LayoutParams(dp(22), dp(16))
+                }
+                row.set(art, wave)
             }
+            Kind.EVENT -> {
+                val e = nextEvent
+                val color = e?.color?.takeIf { it != 0 }?.let { it or 0xFF000000.toInt() } ?: Ui.RED
+                val lead = Ui.iconTile(ctx, R.drawable.ic_calendar, color, 22, 13)
+                val trail = Ui.text(ctx, 14f, color, value = minutesUntil(e), weight = Ui.Weight.SEMIBOLD)
+                row.set(lead, trail)
+                updater = { trail.text = minutesUntil(nextEvent) }
+            }
+            Kind.CHARGING -> {
+                val lead = Ui.icon(ctx, R.drawable.ic_flash, Ui.GREEN).apply { layoutParams = ViewGroup.LayoutParams(dp(18), dp(18)) }
+                val trail = Ui.text(ctx, 15f, Ui.GREEN, value = "${status.batteryPercent()}%", weight = Ui.Weight.DISPLAY_SEMIBOLD)
+                row.set(lead, trail)
+            }
+            else -> row.set(null, null)
         }
-        // A linha fica na altura da câmera.
-        topRow.layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, maxOf(holeBottom, dp(24)), Gravity.TOP)
+        row.layoutParams = FrameLayout.LayoutParams(w, pillH())
+        return row
     }
 
-    private fun applySide() {
-        if (onTop) {
-            params.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            root.setPadding(0, hidden, 0, 0)
-            tabIndicator.visibility = View.GONE
-            topRow.visibility = View.VISIBLE
-            for (layer in listOf(tabLayer, dockLayer, cardLayer)) {
-                val lp = layer.layoutParams as? FrameLayout.LayoutParams ?: continue
-                layer.layoutParams = layerParams(lp.width, lp.height)
-            }
-            return
-        }
-        tabIndicator.visibility = View.VISIBLE
-        topRow.visibility = View.GONE
-        params.gravity = Gravity.TOP or (if (rightSide) Gravity.END else Gravity.START)
-        // O pedaço escondido fica do lado da borda; o conteúdo, do lado de dentro.
-        root.setPadding(if (rightSide) 0 else hidden, 0, if (rightSide) hidden else 0, 0)
-        for (layer in listOf(tabLayer, dockLayer, cardLayer)) {
-            val lp = layer.layoutParams as? FrameLayout.LayoutParams ?: continue
-            layer.layoutParams = layerParams(lp.width, lp.height)
-        }
-    }
-
-    private fun updateTabIndicator() {
-        val color = when {
-            unread -> Ui.BLUE
-            isMusicPlaying -> Ui.GREEN
-            else -> 0x73FFFFFF
-        }
-        tabIndicator.background = Ui.rounded(color, Ui.dpf(ctx, 2f))
+    private fun minutesUntil(e: CalEvent?): String {
+        if (e == null) return ""
+        val m = ((e.begin - System.currentTimeMillis()) / 60_000L).coerceAtLeast(0)
+        return if (m < 1) "agora" else "$m min"
     }
 
     // =====================================================================
-    // Dock (coluna de status)
+    // Conteúdo expandido
     // =====================================================================
 
-    private fun refreshDock() {
-        val now = Date()
-        dockHour.text = SimpleDateFormat("HH", ptBR).format(now)
-        dockMinute.text = SimpleDateFormat("mm", ptBR).format(now)
-        dockSignal.level = status.signalLevel()
-        dockWifi.alpha = if (status.isWifi()) 1f else 0.28f
-        val pct = status.batteryPercent()
-        dockBattery.percent = pct
-        dockBattery.charging = status.isCharging()
-        dockBatteryText.text = "$pct%"
-        dockWeekday.text = SimpleDateFormat("EEE", ptBR).format(now).uppercase(ptBR).take(3)
-        dockDay.text = SimpleDateFormat("d", ptBR).format(now)
-        dockFlash.imageTintList = ColorStateList.valueOf(if (status.torchOn) Ui.YELLOW else Color.WHITE)
-        dockMusicRow?.visibility = if (media?.metadata != null) View.VISIBLE else View.GONE
-    }
+    private var siriWave: SiriWaveView? = null
+    private var voiceText: TextView? = null
 
-    private fun dockItem(content: View, w: Int, h: Int, rowHeight: Int = 42, onClick: () -> Unit): View =
-        FrameLayout(ctx).apply {
-            addView(content, FrameLayout.LayoutParams(w, h, Gravity.CENTER))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(rowHeight))
-            Ui.pressable(this) {
-                touched()
-                onClick()
-            }
-        }
-
-    private fun buildDock() {
-        dockLayer.orientation = LinearLayout.VERTICAL
-        dockLayer.gravity = Gravity.CENTER_HORIZONTAL
-        dockLayer.setPadding(0, dp(16), 0, dp(14))
-
-        val clock = LinearLayout(ctx).apply {
+    /** Cartão expandido: linha de cima na altura da câmera + corpo embaixo. */
+    private fun expandedBox(leading: View?, trailing: View?, topHeight: Int = pillH()): Pair<LinearLayout, LinearLayout> {
+        val w = expandedW()
+        val outer = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            for (t in listOf(dockHour, dockMinute)) {
-                t.fontFeatureSettings = "tnum"
-                t.gravity = Gravity.CENTER
-                addView(t)
-            }
-            (dockMinute.layoutParams as LinearLayout.LayoutParams).topMargin = dp(1)
+            isClickable = false
         }
-        dockLayer.addView(dockItem(clock, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 52) { showCalendarCard() })
-        dockLayer.addView(dockItem(dockSignal, dp(17), dp(13)) { open(status.internetPanelIntent()) })
-        dockLayer.addView(dockItem(dockWifi, dp(20), dp(20)) { open(status.wifiPanelIntent()) })
-        dockLayer.addView(dockItem(Ui.icon(ctx, R.drawable.ic_brightness), dp(21), dp(21)) { showControlsCard() })
-        dockLayer.addView(dockItem(Ui.icon(ctx, R.drawable.ic_volume), dp(21), dp(21)) { showControlsCard() })
-
-        val batteryBox = LinearLayout(ctx).apply {
+        val row = cameraRow(w, max(topHeight, pillH())).apply { sidePadding = dp(18) }
+        row.set(leading, trailing)
+        outer.addView(row)
+        val body = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            addView(dockBattery, LinearLayout.LayoutParams(dp(25), dp(12)))
-            dockBatteryText.fontFeatureSettings = "tnum"
-            addView(dockBatteryText, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
+            setPadding(dp(20), dp(8), dp(20), dp(20))
         }
-        dockLayer.addView(dockItem(batteryBox, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 46) { showControlsCard() })
-
-        dockLayer.addView(View(ctx).apply { background = Ui.rounded(0x26FFFFFF, 1f) }, LinearLayout.LayoutParams(dp(22), Math.max(1, dp(1) / 2)).apply {
-            topMargin = dp(6)
-            bottomMargin = dp(8)
-        })
-
-        val calBox = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            background = Ui.rounded(Ui.SURFACE, Ui.dpf(ctx, 10f))
-            dockWeekday.gravity = Gravity.CENTER
-            dockWeekday.letterSpacing = 0.06f
-            dockDay.gravity = Gravity.CENTER
-            addView(dockWeekday)
-            addView(dockDay, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(2) })
-        }
-        dockLayer.addView(dockItem(calBox, dp(40), dp(40), 50) { showCalendarCard() })
-        dockLayer.addView(dockItem(dockFlash, dp(21), dp(21)) {
-            if (!status.setTorch(!status.torchOn)) {
-                showInfo(R.drawable.ic_flash, Ui.GRAY, "Lanterna", "A câmera está em uso agora.")
-            }
-            refreshDock()
-        })
-        dockMusicRow = dockItem(dockMusic, dp(21), dp(21)) { showMusicCard() }.also { dockLayer.addView(it) }
-        dockLayer.addView(dockItem(dockOrb, dp(40), dp(40), 54) { startVoice() })
-        dockLayer.addView(dockItem(Ui.icon(ctx, R.drawable.ic_settings, Ui.GRAY), dp(18), dp(18), 32) {
-            open(Intent(ctx, MainActivity::class.java))
-        })
+        outer.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        return outer to body
     }
 
-    // =====================================================================
-    // Cartões
-    // =====================================================================
-
-    private fun cardBox(): LinearLayout = LinearLayout(ctx).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(20), dp(18), dp(20), dp(18))
-        isClickable = true
-        setOnClickListener { touched() }
+    private fun buildExpanded(kind: Kind): View {
+        updater = null
+        val view = when (kind) {
+            Kind.VOICE -> buildVoice()
+            Kind.TIMER -> buildTimer()
+            Kind.MUSIC -> buildMusic()
+            Kind.EVENT -> buildEvent()
+            Kind.NOTIFICATION -> buildNotification()
+            Kind.INFO -> buildInfo()
+            Kind.CONTROLS -> buildControls()
+            Kind.CALENDAR -> buildCalendar()
+            Kind.NOTES -> buildNotes()
+            else -> buildHome()
+        }
+        ((view as? ViewGroup)?.getChildAt(1) as? ViewGroup)?.let { Ui.stagger(it, 110) }
+        return view
     }
 
     private fun lp(top: Int = 0, w: Int = ViewGroup.LayoutParams.MATCH_PARENT, h: Int = ViewGroup.LayoutParams.WRAP_CONTENT) =
         LinearLayout.LayoutParams(w, h).apply { topMargin = dp(top) }
 
-    /** Linha de título: ícone, título/subtítulo e algo à direita. */
-    private fun header(leading: View?, title: String, subtitle: String? = null, trailing: View? = null): LinearLayout =
-        LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            if (leading != null) {
-                val w = leading.layoutParams?.width?.takeIf { it > 0 } ?: dp(36)
-                val h = leading.layoutParams?.height?.takeIf { it > 0 } ?: w
-                addView(leading, LinearLayout.LayoutParams(w, h).apply { marginEnd = dp(12) })
-            }
-            val texts = LinearLayout(ctx).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(Ui.text(ctx, 16f, Color.WHITE, value = title, weight = Ui.Weight.SEMIBOLD).apply {
-                    isSingleLine = true
-                    ellipsize = TextUtils.TruncateAt.END
-                })
-                if (!subtitle.isNullOrBlank()) {
-                    addView(Ui.text(ctx, 13f, Ui.SECONDARY, value = subtitle).apply {
-                        maxLines = 2
-                        ellipsize = TextUtils.TruncateAt.END
-                    }, lp(3))
-                }
-            }
-            addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            if (trailing != null) addView(trailing)
+    private fun title(text: String, sp: Float = 16f, color: Int = Color.WHITE, weight: Ui.Weight = Ui.Weight.SEMIBOLD) =
+        Ui.text(ctx, sp, color, value = text, weight = weight).apply {
+            isSingleLine = true
+            ellipsize = TextUtils.TruncateAt.END
         }
 
     private fun buttonRow(vararg buttons: View): LinearLayout = LinearLayout(ctx).apply {
@@ -922,144 +896,430 @@ class IslandController(private val ctx: Context) {
             onClick()
         }
 
+    /** Botão cápsula com cor própria (laranja dos timers, vermelho de parar...). */
+    private fun tinted(label: String, color: Int, onClick: () -> Unit): View = LinearLayout(ctx).apply {
+        gravity = Gravity.CENTER
+        background = Ui.rounded((color and 0x00FFFFFF) or 0x38000000, Ui.dpf(ctx, 100f))
+        addView(Ui.text(ctx, 15f, color, value = label, weight = Ui.Weight.SEMIBOLD))
+        Ui.pressable(this) {
+            touched()
+            onClick()
+        }
+    }
+
     private fun sectionLabel(text: String) = Ui.text(ctx, 12f, Ui.SECONDARY, value = text.uppercase(ptBR), weight = Ui.Weight.SEMIBOLD).apply {
         letterSpacing = 0.06f
     }
 
-    private fun buildInfoCard(iconRes: Int, color: Int, title: String, body: String): ViewGroup = cardBox().apply {
-        addView(header(Ui.iconTile(ctx, iconRes, color, 36, 20), title, body))
+    // ----- Assistente (estilo Siri) -----
+
+    private fun buildVoice(): View {
+        val label = when (voiceState) {
+            VoiceState.LISTENING -> "Ouvindo"
+            VoiceState.THINKING -> "Pensando"
+            VoiceState.ANSWER -> prefs.assistantName
+        }
+        val lead = Ui.text(ctx, 17f, Color.WHITE, value = label, weight = Ui.Weight.BOLD)
+        val trail = Ui.text(ctx, 14f, Ui.TEAL, value = if (voiceState == VoiceState.ANSWER) "" else prefs.assistantName, weight = Ui.Weight.SEMIBOLD)
+        val (outer, body) = expandedBox(lead, trail, dp(44))
+
+        val wave = SiriWaveView(ctx).apply {
+            active = voiceState != VoiceState.ANSWER
+            level = voiceLevel
+        }
+        siriWave = wave
+        body.addView(wave, lp(0, h = dp(if (voiceState == VoiceState.ANSWER) 28 else 56)))
+
+        val heard = Ui.text(ctx, 15f, Ui.SECONDARY, value = if (voiceHeard.isNotBlank()) "“$voiceHeard”" else "", weight = Ui.Weight.MEDIUM).apply {
+            maxLines = 3
+            ellipsize = TextUtils.TruncateAt.END
+            visibility = if (voiceHeard.isBlank()) View.GONE else View.VISIBLE
+        }
+        voiceText = heard
+        body.addView(heard, lp(6))
+
+        if (voiceState == VoiceState.ANSWER && voiceAnswer.isNotBlank()) {
+            body.addView(Ui.text(ctx, 19f, Color.WHITE, value = voiceAnswer, weight = Ui.Weight.MEDIUM).apply {
+                maxLines = 9
+                ellipsize = TextUtils.TruncateAt.END
+                setLineSpacing(Ui.dpf(ctx, 3f), 1f)
+            }, lp(8))
+            val actions = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(Ui.circle(ctx, R.drawable.ic_keyboard, 44, iconDp = 20) { startTyping() })
+                addView(View(ctx), LinearLayout.LayoutParams(0, 1, 1f))
+                addView(Ui.capsule(ctx, "Falar de novo", Ui.ButtonStyle.PRIMARY, R.drawable.ic_mic) { startVoice() }, LinearLayout.LayoutParams(dp(170), dp(44)))
+                addView(View(ctx), LinearLayout.LayoutParams(0, 1, 1f))
+                addView(Ui.circle(ctx, R.drawable.ic_close, 44, iconDp = 18) {
+                    assistant.stopSpeaking()
+                    collapse()
+                })
+            }
+            body.addView(actions, lp(16))
+        }
+        return outer
     }
 
-    private fun buildNotificationCard(info: NotificationInfo): ViewGroup = cardBox().apply {
-        val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
-        val icon = Ui.appIcon(ctx, 40).apply { setImageDrawable(info.icon) }
-        row.addView(icon, LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(12) })
-        val texts = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
-        val top = LinearLayout(ctx).apply {
+    // ----- Timer (estilo Live Activity) -----
+
+    private fun buildTimer(): View {
+        val primary = Timers.primary()
+        val ringing = Timers.ringing
+        val color = if (ringing != null) Ui.RED else Ui.ORANGE
+        val lead = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            addView(Ui.text(ctx, 15f, Color.WHITE, value = info.title.ifBlank { info.appName }, weight = Ui.Weight.SEMIBOLD).apply {
+            addView(Ui.iconTile(ctx, R.drawable.ic_timer, color, 26, 16))
+            addView(Ui.text(ctx, 15f, Color.WHITE, value = primary?.label ?: "Timer", weight = Ui.Weight.SEMIBOLD).apply {
                 isSingleLine = true
                 ellipsize = TextUtils.TruncateAt.END
-            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(Ui.text(ctx, 12f, Ui.SECONDARY, value = relativeTime(info.time)).apply { setPadding(dp(8), 0, 0, 0) })
+                setPadding(dp(8), 0, 0, 0)
+            })
         }
-        texts.addView(top)
-        if (info.text.isNotBlank()) {
-            texts.addView(Ui.text(ctx, 14f, 0xD9FFFFFF.toInt(), value = info.text).apply {
-                maxLines = 4
+        val count = Timers.list.size
+        val trail = Ui.text(ctx, 14f, color, value = if (count > 1) "$count timers" else "", weight = Ui.Weight.MEDIUM)
+        val (outer, body) = expandedBox(lead, trail)
+        if (primary == null) return outer
+
+        if (ringing != null) {
+            body.addView(Ui.text(ctx, 34f, Ui.RED, value = "Tempo esgotado", weight = Ui.Weight.DISPLAY), lp(4))
+            body.addView(Ui.text(ctx, 15f, Ui.SECONDARY, value = ringing.label), lp(4))
+            body.addView(buttonRow(capsule("Parar", Ui.ButtonStyle.PRIMARY) { Timers.stopRinging() }), lp(16))
+            return outer
+        }
+
+        val mainRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val bigTime = Ui.text(ctx, 50f, Ui.ORANGE, value = Timers.format(primary.leftMs()), weight = Ui.Weight.DISPLAY).apply {
+            fontFeatureSettings = "tnum"
+            letterSpacing = -0.02f
+        }
+        mainRow.addView(bigTime, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val ring = FrameLayout(ctx)
+        val ringView = RingView(ctx).apply {
+            this.color = Ui.ORANGE
+            percent = (100 - primary.progress() * 100).roundToInt()
+        }
+        ring.addView(ringView, FrameLayout.LayoutParams(dp(58), dp(58), Gravity.CENTER))
+        ring.addView(Ui.icon(ctx, if (primary.paused) R.drawable.ic_play else R.drawable.ic_pause, Ui.ORANGE), FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER))
+        Ui.pressable(ring) {
+            touched()
+            Timers.togglePause(primary)
+        }
+        mainRow.addView(ring, LinearLayout.LayoutParams(dp(62), dp(62)))
+        body.addView(mainRow)
+        val endsAt = Ui.text(ctx, 13f, Ui.SECONDARY)
+        body.addView(endsAt, lp(2))
+
+        body.addView(buttonRow(
+            tinted("+1 min", Ui.ORANGE) { Timers.add(primary, 60) },
+            tinted("+5 min", Ui.ORANGE) { Timers.add(primary, 300) },
+            tinted("Parar", Ui.RED) { Timers.stop(primary) },
+        ), lp(16))
+
+        val others = Timers.list.filter { it !== primary }.take(2).map { t ->
+            val row = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(14), dp(10), dp(14), dp(10))
+                background = Ui.rounded(Ui.SURFACE, Ui.dpf(ctx, 14f))
+                addView(title(t.label, 15f), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            }
+            val time = Ui.text(ctx, 16f, Ui.ORANGE, value = Timers.format(t.leftMs()), weight = Ui.Weight.DISPLAY_SEMIBOLD).apply { fontFeatureSettings = "tnum" }
+            row.addView(time)
+            body.addView(row, lp(8))
+            t to time
+        }
+        updater = {
+            bigTime.text = Timers.format(primary.leftMs())
+            ringView.percent = (100 - primary.progress() * 100).roundToInt()
+            endsAt.text = if (primary.paused) "Pausado" else "Acaba às " + SimpleDateFormat("HH:mm", ptBR).format(Date(System.currentTimeMillis() + primary.leftMs()))
+            others.forEach { (t, v) -> v.text = Timers.format(t.leftMs()) }
+        }
+        updater?.invoke()
+        return outer
+    }
+
+    // ----- Música -----
+
+    private fun buildMusic(): View {
+        val meta = media?.metadata
+        val art = ImageView(ctx).apply {
+            setImageDrawable(artDrawable())
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            Ui.clipRound(this, Ui.dpf(ctx, 12f), Ui.SURFACE)
+            layoutParams = ViewGroup.LayoutParams(dp(50), dp(50))
+        }
+        val wave = WaveView(ctx).apply {
+            color = artColor()
+            active = isMusicPlaying
+            layoutParams = ViewGroup.LayoutParams(dp(26), dp(20))
+        }
+        val (outer, body) = expandedBox(art, wave, dp(66))
+        if (meta == null) {
+            body.addView(Ui.text(ctx, 15f, Ui.SECONDARY, value = "Nada tocando."))
+            return outer
+        }
+        body.addView(title(meta.getString(MediaMetadata.METADATA_KEY_TITLE) ?: "Música", 18f))
+        body.addView(title(meta.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: "", 15f, Ui.SECONDARY, Ui.Weight.REGULAR), lp(3))
+
+        val track = FrameLayout(ctx).apply { background = Ui.rounded(0x3DFFFFFF, Ui.dpf(ctx, 3f)) }
+        val fill = View(ctx).apply { background = Ui.rounded(0xE6FFFFFF.toInt(), Ui.dpf(ctx, 3f)) }
+        track.addView(fill, FrameLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT))
+        body.addView(track, lp(16, h = dp(5)))
+        val times = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        val elapsed = Ui.text(ctx, 11f, Ui.SECONDARY, weight = Ui.Weight.MEDIUM).apply { fontFeatureSettings = "tnum" }
+        val remaining = Ui.text(ctx, 11f, Ui.SECONDARY, weight = Ui.Weight.MEDIUM).apply {
+            fontFeatureSettings = "tnum"
+            gravity = Gravity.END
+        }
+        times.addView(elapsed, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        times.addView(remaining, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        body.addView(times, lp(6))
+
+        val controls = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        controls.addView(Ui.circle(ctx, R.drawable.ic_prev, 52, bg = Color.TRANSPARENT, iconDp = 30) {
+            touched()
+            previousTrack()
+        })
+        controls.addView(Ui.circle(ctx, if (isMusicPlaying) R.drawable.ic_pause else R.drawable.ic_play, 64, bg = Color.TRANSPARENT, iconDp = 42) {
+            touched()
+            playPause()
+        }, LinearLayout.LayoutParams(dp(64), dp(64)).apply {
+            marginStart = dp(28)
+            marginEnd = dp(28)
+        })
+        controls.addView(Ui.circle(ctx, R.drawable.ic_next, 52, bg = Color.TRANSPARENT, iconDp = 30) {
+            touched()
+            nextTrack()
+        })
+        body.addView(controls, lp(6))
+
+        updater = {
+            val state = media?.playbackState
+            val duration = media?.metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
+            if (state == null || duration <= 0L) {
+                track.visibility = View.INVISIBLE
+            } else {
+                var pos = state.position
+                if (state.state == PlaybackState.STATE_PLAYING) {
+                    pos += ((SystemClock.elapsedRealtime() - state.lastPositionUpdateTime) * state.playbackSpeed).toLong()
+                }
+                pos = pos.coerceIn(0L, duration)
+                track.visibility = View.VISIBLE
+                fill.layoutParams = FrameLayout.LayoutParams((track.width * pos.toFloat() / duration).roundToInt(), ViewGroup.LayoutParams.MATCH_PARENT)
+                elapsed.text = mmss(pos)
+                remaining.text = "-" + mmss(duration - pos)
+            }
+        }
+        track.post { updater?.invoke() }
+        return outer
+    }
+
+    private fun mmss(ms: Long): String {
+        val s = ms / 1000
+        return String.format(ptBR, "%d:%02d", s / 60, s % 60)
+    }
+
+    // ----- Próximo compromisso -----
+
+    private fun buildEvent(): View {
+        val e = nextEvent ?: return buildHome()
+        val color = if (e.color != 0) e.color or 0xFF000000.toInt() else Ui.RED
+        val lead = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(Ui.iconTile(ctx, R.drawable.ic_calendar, color, 26, 15))
+            addView(Ui.text(ctx, 15f, color, value = "Em " + minutesUntil(e), weight = Ui.Weight.SEMIBOLD).apply { setPadding(dp(8), 0, 0, 0) })
+        }
+        val trail = Ui.text(ctx, 15f, Color.WHITE, value = SimpleDateFormat("HH:mm", ptBR).format(Date(e.begin)), weight = Ui.Weight.DISPLAY_SEMIBOLD)
+        val (outer, body) = expandedBox(lead, trail)
+        body.addView(Ui.text(ctx, 22f, Color.WHITE, value = e.title, weight = Ui.Weight.DISPLAY_SEMIBOLD).apply {
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+        })
+        if (e.location.isNotBlank()) body.addView(title(e.location, 14f, Ui.SECONDARY, Ui.Weight.REGULAR), lp(4))
+        val track = FrameLayout(ctx).apply { background = Ui.rounded(0x33FFFFFF, Ui.dpf(ctx, 3f)) }
+        val fill = View(ctx).apply { background = Ui.rounded(color, Ui.dpf(ctx, 3f)) }
+        track.addView(fill, FrameLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT))
+        body.addView(track, lp(14, h = dp(6)))
+        updater = {
+            val left = (e.begin - System.currentTimeMillis()).coerceAtLeast(0)
+            val frac = 1f - (left / (60 * 60_000f)).coerceIn(0f, 1f)
+            fill.layoutParams = FrameLayout.LayoutParams((track.width * frac).roundToInt(), ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+        track.post { updater?.invoke() }
+        body.addView(buttonRow(
+            capsule("Ver evento", Ui.ButtonStyle.PRIMARY) { open(calendar.viewIntent(e)) },
+            capsule("Ok") { collapse() },
+        ), lp(16))
+        return outer
+    }
+
+    // ----- Notificação -----
+
+    private fun buildNotification(): View {
+        val n = notification ?: return buildHome()
+        val locked = isLocked()
+        val hide = locked && prefs.lockHideContent
+        val icon = Ui.appIcon(ctx, 28).apply {
+            setImageDrawable(n.icon)
+            layoutParams = ViewGroup.LayoutParams(dp(28), dp(28))
+        }
+        val lead = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(icon)
+            addView(Ui.text(ctx, 13f, Ui.SECONDARY, value = n.appName, weight = Ui.Weight.MEDIUM).apply {
+                isSingleLine = true
+                ellipsize = TextUtils.TruncateAt.END
+                setPadding(dp(8), 0, 0, 0)
+            })
+        }
+        val trail = Ui.text(ctx, 13f, Ui.SECONDARY, value = SimpleDateFormat("HH:mm", ptBR).format(Date(n.time)))
+        val (outer, body) = expandedBox(lead, trail)
+        body.addView(title(if (hide) "Nova mensagem" else n.title.ifBlank { n.appName }, 17f))
+        if (!hide && n.text.isNotBlank()) {
+            body.addView(Ui.text(ctx, 15f, 0xD9FFFFFF.toInt(), value = n.text).apply {
+                maxLines = if (locked) 1 else 3 // bloqueado: só a prévia
                 ellipsize = TextUtils.TruncateAt.END
                 setLineSpacing(Ui.dpf(ctx, 2f), 1f)
             }, lp(4))
         }
-        texts.addView(Ui.text(ctx, 12f, Ui.SECONDARY, value = info.appName), lp(6))
-        row.addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        addView(row)
         val buttons = mutableListOf<View>()
-        if (info.contentIntent != null) buttons.add(capsule("Abrir", Ui.ButtonStyle.PRIMARY) { openNotification(info.contentIntent) })
-        buttons.add(capsule("Fechar") {
-            unread = false
-            showTab()
-        })
-        addView(buttonRow(*buttons.toTypedArray()), lp(16))
+        if (n.contentIntent != null) buttons.add(capsule("Abrir", Ui.ButtonStyle.PRIMARY) { openNotification(n.contentIntent) })
+        buttons.add(capsule("Fechar") { collapse() })
+        body.addView(buttonRow(*buttons.toTypedArray()), lp(16))
+        return outer
     }
 
-    private fun relativeTime(ms: Long): String {
-        val diff = (System.currentTimeMillis() - ms) / 60_000L
-        return when {
-            diff < 1 -> "agora"
-            diff < 60 -> "há $diff min"
-            else -> SimpleDateFormat("HH:mm", ptBR).format(Date(ms))
-        }
-    }
-
-    private fun buildEventSoonCard(e: CalEvent, minutes: Int): ViewGroup = cardBox().apply {
-        val time = SimpleDateFormat("HH:mm", ptBR).format(Date(e.begin))
-        val where = if (e.location.isNotBlank()) " · ${e.location}" else ""
-        addView(header(Ui.iconTile(ctx, R.drawable.ic_calendar, Ui.RED, 36, 19), e.title, "Em $minutes min · $time$where"))
-        addView(buttonRow(
-            capsule("Ver evento", Ui.ButtonStyle.PRIMARY) { open(calendar.viewIntent(e)) },
-            capsule("Ok") { showTab() },
-        ), lp(16))
-    }
-
-    // ----- Agenda -----
-
-    private fun showCalendarCard() {
-        val box = cardBox()
-        val now = Date()
-        val dateRow = LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.BOTTOM
-            val left = LinearLayout(ctx).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(Ui.text(ctx, 13f, Ui.RED, value = SimpleDateFormat("EEEE", ptBR).format(now).uppercase(ptBR), weight = Ui.Weight.BOLD).apply {
-                    letterSpacing = 0.04f
-                })
-                addView(Ui.text(ctx, 44f, Color.WHITE, value = SimpleDateFormat("d", ptBR).format(now), weight = Ui.Weight.DISPLAY), lp(2))
+    private fun openNotification(intent: PendingIntent?) {
+        if (intent == null) return
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                val options = ActivityOptions.makeBasic()
+                    .setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
+                intent.send(ctx, 0, null, null, null, null, options.toBundle())
+            } else {
+                intent.send()
             }
-            addView(left, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(Ui.text(ctx, 14f, Ui.SECONDARY, value = SimpleDateFormat("MMMM", ptBR).format(now).replaceFirstChar { it.uppercase(ptBR) }, weight = Ui.Weight.MEDIUM).apply {
-                setPadding(0, 0, 0, dp(6))
+        } catch (_: PendingIntent.CanceledException) {
+        }
+        collapse()
+    }
+
+    // ----- Aviso -----
+
+    private fun buildInfo(): View {
+        val (iconRes, titleText, bodyText) = info ?: Triple(R.drawable.ic_sparkle, "", "")
+        val lead = Ui.iconTile(ctx, iconRes, infoColor, 26, 16)
+        val (outer, body) = expandedBox(lead, null)
+        body.addView(title(titleText, 17f))
+        if (bodyText.isNotBlank()) {
+            body.addView(Ui.text(ctx, 15f, 0xD9FFFFFF.toInt(), value = bodyText).apply {
+                maxLines = 3
+                ellipsize = TextUtils.TruncateAt.END
+            }, lp(4))
+        }
+        return outer
+    }
+
+    // ----- Início (tocar com nada ao vivo) -----
+
+    private fun buildHome(): View {
+        val now = Date()
+        val clock = Ui.text(ctx, 16f, Color.WHITE, value = SimpleDateFormat("HH:mm", ptBR).format(now), weight = Ui.Weight.DISPLAY_SEMIBOLD).apply {
+            fontFeatureSettings = "tnum"
+        }
+        val pct = status.batteryPercent()
+        val batt = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(Ui.text(ctx, 14f, if (status.isCharging()) Ui.GREEN else Color.WHITE, value = "$pct%", weight = Ui.Weight.SEMIBOLD).apply {
+                setPadding(0, 0, dp(6), 0)
             })
+            addView(BatteryView(ctx).apply {
+                percent = pct
+                charging = status.isCharging()
+            }, LinearLayout.LayoutParams(dp(24), dp(12)))
         }
-        box.addView(dateRow)
+        val (outer, body) = expandedBox(clock, batt)
 
-        if (!calendar.canRead()) {
-            box.addView(Ui.text(ctx, 14f, 0xD9FFFFFF.toInt(), value = "Permita o acesso à agenda para eu mostrar seus compromissos e avisar antes de cada um.").apply {
-                setLineSpacing(Ui.dpf(ctx, 2f), 1f)
-            }, lp(12))
-            box.addView(buttonRow(capsule("Permitir agenda", Ui.ButtonStyle.PRIMARY) { open(Intent(ctx, MainActivity::class.java)) }), lp(16))
-            showCard(Card.CALENDAR, box, 12_000)
-            return
+        val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        val hi = when (hour) {
+            in 5..11 -> "Bom dia"
+            in 12..17 -> "Boa tarde"
+            else -> "Boa noite"
         }
+        body.addView(Ui.text(ctx, 26f, Color.WHITE, value = hi, weight = Ui.Weight.DISPLAY))
+        body.addView(Ui.text(ctx, 14f, Ui.SECONDARY, value = SimpleDateFormat("EEEE, d 'de' MMMM", ptBR).format(now).replaceFirstChar { it.uppercase(ptBR) }), lp(3))
 
-        val todayEvents = calendar.today()
-        box.addView(sectionLabel("Hoje"), lp(14))
-        if (todayEvents.isEmpty()) {
-            box.addView(Ui.text(ctx, 15f, 0xD9FFFFFF.toInt(), value = "Nenhum evento. Dia livre!"), lp(8))
-        } else {
-            todayEvents.take(4).forEach { box.addView(eventRow(it, withDay = false), lp(6)) }
-        }
-
-        val tomorrowStart = CalendarRepo.startOfDay(1)
-        val later = calendar.upcoming(days = 7, limit = 12).filter { it.begin >= tomorrowStart }.take(3)
-        if (later.isNotEmpty()) {
-            box.addView(sectionLabel("Próximos dias"), lp(16))
-            later.forEach { box.addView(eventRow(it, withDay = true), lp(6)) }
+        if (calendar.canRead()) {
+            val next = calendar.upcoming(days = 7, limit = 1).firstOrNull()
+            if (next != null) body.addView(eventRow(next, withDay = next.begin >= CalendarRepo.startOfDay(1)), lp(14))
         }
 
-        box.addView(buttonRow(
-            capsule("Novo", iconRes = R.drawable.ic_add) { open(calendar.newEventIntent()) },
-            capsule("Marcar por voz", Ui.ButtonStyle.PRIMARY, R.drawable.ic_mic) { startVoice() },
-        ), lp(18))
-        showCard(Card.CALENDAR, box, 15_000)
+        if (!isLocked()) {
+            val tiles = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+            fun tile(v: View) = tiles.addView(v, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            tile(orbTile())
+            tile(actionTile(R.drawable.ic_calendar, "Agenda", Ui.RED) { expand(Kind.CALENDAR, rebuild = true) })
+            tile(actionTile(R.drawable.ic_note, "Notas", Ui.YELLOW) { expand(Kind.NOTES, rebuild = true) })
+            tile(actionTile(R.drawable.ic_tune, "Controles", Ui.BLUE) { expand(Kind.CONTROLS, rebuild = true) })
+            body.addView(tiles, lp(18))
+        }
+        return outer
+    }
+
+    private fun actionTile(iconRes: Int, label: String, color: Int, onClick: () -> Unit): View = LinearLayout(ctx).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER_HORIZONTAL
+        val circle = FrameLayout(ctx).apply {
+            background = Ui.oval(Ui.ELEVATED)
+            addView(Ui.icon(ctx, iconRes, color), FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER))
+        }
+        addView(circle, LinearLayout.LayoutParams(dp(54), dp(54)))
+        addView(Ui.text(ctx, 11f, Ui.SECONDARY, value = label, weight = Ui.Weight.MEDIUM), LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply { topMargin = dp(6) })
+        Ui.pressable(circle) {
+            touched()
+            onClick()
+        }
+    }
+
+    private fun orbTile(): View = LinearLayout(ctx).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER_HORIZONTAL
+        val orb = OrbView(ctx)
+        addView(orb, LinearLayout.LayoutParams(dp(54), dp(54)))
+        addView(Ui.text(ctx, 11f, Ui.SECONDARY, value = "Falar", weight = Ui.Weight.MEDIUM), LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply { topMargin = dp(6) })
+        Ui.pressable(orb) { startVoice() }
     }
 
     private fun eventRow(e: CalEvent, withDay: Boolean): View = LinearLayout(ctx).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(12), dp(10), dp(12), dp(10))
-        background = Ui.rounded(Ui.SURFACE, Ui.dpf(ctx, 12f))
+        background = Ui.rounded(Ui.SURFACE, Ui.dpf(ctx, 14f))
         val color = if (e.color != 0) e.color or 0xFF000000.toInt() else Ui.BLUE
         addView(View(ctx).apply { background = Ui.rounded(color, Ui.dpf(ctx, 2f)) }, LinearLayout.LayoutParams(dp(4), dp(34)).apply { marginEnd = dp(12) })
         val texts = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
-            addView(Ui.text(ctx, 15f, Color.WHITE, value = e.title, weight = Ui.Weight.SEMIBOLD).apply {
-                isSingleLine = true
-                ellipsize = TextUtils.TruncateAt.END
-            })
+            addView(title(e.title, 15f))
             val sub = if (withDay) SimpleDateFormat("EEEE, d", ptBR).format(Date(e.begin)).replaceFirstChar { it.uppercase(ptBR) } else e.location
-            if (sub.isNotBlank()) {
-                addView(Ui.text(ctx, 13f, Ui.SECONDARY, value = sub).apply {
-                    isSingleLine = true
-                    ellipsize = TextUtils.TruncateAt.END
-                }, lp(3))
-            }
+            if (sub.isNotBlank()) addView(title(sub, 13f, Ui.SECONDARY, Ui.Weight.REGULAR), lp(3))
         }
         addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        val time = if (e.allDay) "dia todo" else SimpleDateFormat("HH:mm", ptBR).format(Date(e.begin))
-        addView(Ui.text(ctx, 13f, Ui.SECONDARY, value = time, weight = Ui.Weight.MEDIUM).apply {
+        addView(Ui.text(ctx, 13f, Ui.SECONDARY, value = if (e.allDay) "dia todo" else SimpleDateFormat("HH:mm", ptBR).format(Date(e.begin)), weight = Ui.Weight.MEDIUM).apply {
             fontFeatureSettings = "tnum"
             setPadding(dp(10), 0, 0, 0)
         })
@@ -1069,149 +1329,16 @@ class IslandController(private val ctx: Context) {
         }
     }
 
+    // ----- Controles -----
 
-    // ----- Painel do topo (ilha expandida) -----
-
-    /** Ilha do topo aberta: hora, bateria, controles, próximo compromisso, música e assistente. */
-    private fun showHub() {
-        val box = cardBox()
-        val now = Date()
-
-        // Hora grande + data | bateria e rede
-        val head = LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            val left = LinearLayout(ctx).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(Ui.text(ctx, 40f, Color.WHITE, value = SimpleDateFormat("HH:mm", ptBR).format(now), weight = Ui.Weight.DISPLAY).apply {
-                    letterSpacing = -0.03f
-                })
-                addView(Ui.text(ctx, 14f, Ui.SECONDARY, value = SimpleDateFormat("EEEE, d 'de' MMMM", ptBR).format(now).replaceFirstChar { it.uppercase(ptBR) },
-                    weight = Ui.Weight.MEDIUM), lp(4))
-            }
-            addView(left, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            val pct = status.batteryPercent()
-            val right = LinearLayout(ctx).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.END
-                val batt = LinearLayout(ctx).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    addView(Ui.text(ctx, 14f, Color.WHITE, value = "$pct%", weight = Ui.Weight.SEMIBOLD).apply {
-                        fontFeatureSettings = "tnum"
-                        setPadding(0, 0, dp(6), 0)
-                    })
-                    addView(BatteryView(ctx).apply {
-                        percent = pct
-                        charging = status.isCharging()
-                    }, LinearLayout.LayoutParams(dp(25), dp(12)))
-                }
-                addView(batt)
-                val net = LinearLayout(ctx).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    addView(SignalView(ctx).apply { level = status.signalLevel() }, LinearLayout.LayoutParams(dp(15), dp(11)).apply { marginEnd = dp(6) })
-                    addView(Ui.icon(ctx, R.drawable.ic_wifi).apply { alpha = if (status.isWifi()) 1f else 0.3f }, LinearLayout.LayoutParams(dp(15), dp(15)))
-                }
-                addView(net, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
-            }
-            addView(right)
-        }
-        box.addView(head)
-
-        // Central de Controle
-        val controls = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
-        addControls(controls)
-        box.addView(controls, lp(18))
-
-        // Próximo compromisso
-        if (calendar.canRead()) {
-            val next = calendar.upcoming(days = 7, limit = 1).firstOrNull()
-            if (next != null) {
-                box.addView(sectionLabel("Próximo"), lp(18))
-                box.addView(eventRow(next, withDay = next.begin >= CalendarRepo.startOfDay(1)), lp(8))
-            }
-        }
-
-        // Música tocando
-        val meta = media?.metadata
-        if (meta != null) {
-            val music = LinearLayout(ctx).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(10), dp(10), dp(6), dp(10))
-                background = Ui.rounded(Ui.SURFACE, Ui.dpf(ctx, 14f))
-                addView(ImageView(ctx).apply {
-                    setImageDrawable(mediaArtwork())
-                    scaleType = ImageView.ScaleType.CENTER_CROP
-                    Ui.clipRound(this, Ui.dpf(ctx, 8f), Ui.ELEVATED)
-                }, LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(12) })
-                val texts = LinearLayout(ctx).apply {
-                    orientation = LinearLayout.VERTICAL
-                    addView(Ui.text(ctx, 15f, Color.WHITE, value = meta.getString(MediaMetadata.METADATA_KEY_TITLE) ?: "Música", weight = Ui.Weight.SEMIBOLD).apply {
-                        isSingleLine = true
-                        ellipsize = TextUtils.TruncateAt.END
-                    })
-                    addView(Ui.text(ctx, 13f, Ui.SECONDARY, value = meta.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: "").apply {
-                        isSingleLine = true
-                        ellipsize = TextUtils.TruncateAt.END
-                    }, lp(3))
-                }
-                addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                addView(Ui.circle(ctx, if (isMusicPlaying) R.drawable.ic_pause else R.drawable.ic_play, 44, bg = Color.TRANSPARENT, iconDp = 28) {
-                    touched()
-                    playPause()
-                    main.postDelayed({ if (mode == Mode.CARD && card == Card.HUB) showHub() }, 350)
-                })
-                Ui.pressable(this) {
-                    touched()
-                    showMusicCard()
-                }
-            }
-            box.addView(music, lp(12))
-        }
-
-        // Ações
-        val orb = OrbView(ctx)
-        val talk = LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(dp(6), 0, dp(16), 0)
-            background = Ui.rounded(Ui.LABEL, Ui.dpf(ctx, 100f))
-            addView(orb, LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginEnd = dp(8) })
-            addView(Ui.text(ctx, 15f, Color.BLACK, value = "Falar com ${prefs.assistantName}", weight = Ui.Weight.SEMIBOLD).apply {
-                isSingleLine = true
-                ellipsize = TextUtils.TruncateAt.END
-            })
-            Ui.pressable(this) { startVoice() }
-        }
-        val actions = LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(Ui.circle(ctx, R.drawable.ic_calendar, 44, iconDp = 20) {
-                touched()
-                showCalendarCard()
-            })
-            addView(talk, LinearLayout.LayoutParams(0, dp(44), 1f).apply {
-                marginStart = dp(10)
-                marginEnd = dp(10)
-            })
-            addView(Ui.circle(ctx, R.drawable.ic_settings, 44, iconDp = 20) { open(Intent(ctx, MainActivity::class.java)) })
-        }
-        box.addView(actions, lp(18))
-
-        showCard(Card.HUB, box, 9_000)
-    }
-
-    // ----- Controles (estilo Central de Controle) -----
-
-    /** Botões redondos (Wi-Fi, Bluetooth, Lanterna, Vibrar) e as barras de brilho e volume. */
-    private fun addControls(box: LinearLayout) {
-        val tiles = LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            weightSum = 4f
-        }
-        fun tile(t: ToggleTile) = tiles.addView(t, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+    private fun buildControls(): View {
+        val pct = status.batteryPercent()
+        val (outer, body) = expandedBox(
+            Ui.text(ctx, 16f, Color.WHITE, value = "Controles", weight = Ui.Weight.SEMIBOLD),
+            Ui.text(ctx, 14f, if (status.isCharging()) Ui.GREEN else Color.WHITE, value = "$pct%", weight = Ui.Weight.SEMIBOLD),
+        )
+        val tiles = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        fun tile(t: View) = tiles.addView(t, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         tile(ToggleTile(ctx, R.drawable.ic_wifi, "Wi-Fi", Ui.BLUE).apply {
             on = status.isWifi()
             setOnTap { open(status.wifiPanelIntent()) }
@@ -1229,372 +1356,192 @@ class IslandController(private val ctx: Context) {
         val vibrate = ToggleTile(ctx, R.drawable.ic_vibrate, "Vibrar", Ui.ORANGE).apply { on = status.isVibrateMode() }
         vibrate.setOnTap {
             touched()
-            if (status.setVibrateMode(!status.isVibrateMode())) {
-                vibrate.on = status.isVibrateMode()
-            } else {
-                open(Intent(Settings.ACTION_SOUND_SETTINGS))
-            }
+            if (status.setVibrateMode(!status.isVibrateMode())) vibrate.on = status.isVibrateMode() else open(Intent(Settings.ACTION_SOUND_SETTINGS))
         }
         tile(vibrate)
-        box.addView(tiles)
+        body.addView(tiles, lp(6))
 
         val canBright = status.canChangeBrightness()
-        val bright = PillSlider(ctx, R.drawable.ic_brightness).apply {
+        body.addView(PillSlider(ctx, R.drawable.ic_brightness).apply {
             value = status.brightnessPercent() / 100f
             enabledLook = canBright
             onTouchActivity = { touched() }
             onChange = { status.setBrightnessPercent((it * 100).roundToInt()) }
             onDisabledTap = { open(status.brightnessPermissionIntent()) }
-        }
-        box.addView(bright, lp(20, h = dp(50)))
-        if (!canBright) {
-            box.addView(Ui.text(ctx, 12f, Ui.SECONDARY, value = "Toque na barra de brilho para permitir que eu ajuste o brilho."), lp(6))
-        }
-        val volume = PillSlider(ctx, R.drawable.ic_speaker).apply {
+        }, lp(18, h = dp(50)))
+        body.addView(PillSlider(ctx, R.drawable.ic_speaker).apply {
             value = status.volumePercent() / 100f
             onTouchActivity = { touched() }
             onChange = { status.setVolumePercent((it * 100).roundToInt()) }
-        }
-        box.addView(volume, lp(10, h = dp(50)))
+        }, lp(10, h = dp(50)))
+        return outer
     }
 
+    // ----- Agenda -----
 
-    private fun showControlsCard() {
-        val box = cardBox()
-
-        addControls(box)
-
-        // Rodapé: bateria e rede
-        val pct = status.batteryPercent()
-        val net = when {
-            status.isWifi() -> "Wi-Fi"
-            status.isMobileData() -> status.carrierName().ifBlank { "Dados móveis" }
-            status.isOnline() -> "Conectado"
-            else -> "Sem internet"
+    private fun buildCalendar(): View {
+        val now = Calendar.getInstance()
+        val (outer, body) = expandedBox(
+            Ui.text(ctx, 14f, Ui.RED, value = SimpleDateFormat("EEEE", ptBR).format(now.time).uppercase(ptBR), weight = Ui.Weight.BOLD).apply { letterSpacing = 0.05f },
+            Ui.text(ctx, 14f, Ui.SECONDARY, value = SimpleDateFormat("d 'de' MMMM", ptBR).format(now.time), weight = Ui.Weight.MEDIUM),
+        )
+        if (!calendar.canRead()) {
+            body.addView(Ui.text(ctx, 15f, 0xD9FFFFFF.toInt(), value = "Permita a agenda no app Ilha para eu mostrar e salvar seus compromissos."))
+            body.addView(buttonRow(capsule("Permitir", Ui.ButtonStyle.PRIMARY) { open(Intent(ctx, MainActivity::class.java)) }), lp(14))
+            return outer
         }
-        val footer = LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(BatteryView(ctx).apply {
-                percent = pct
-                charging = status.isCharging()
-            }, LinearLayout.LayoutParams(dp(25), dp(12)).apply { marginEnd = dp(8) })
-            addView(
-                Ui.text(ctx, 13f, Color.WHITE, value = "$pct%" + if (status.isCharging()) " · Carregando" else "", weight = Ui.Weight.MEDIUM),
-                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
-            )
-            addView(SignalView(ctx).apply { level = status.signalLevel() }, LinearLayout.LayoutParams(dp(15), dp(11)).apply { marginEnd = dp(6) })
-            addView(Ui.text(ctx, 13f, Ui.SECONDARY, value = net))
+        val weekStart = (now.clone() as Calendar).apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            add(Calendar.DAY_OF_MONTH, -(get(Calendar.DAY_OF_WEEK) - Calendar.SUNDAY))
         }
-        box.addView(footer, lp(18))
-        showCard(Card.CONTROLS, box, 12_000)
-    }
-
-    // ----- Música -----
-
-    private fun showMusicCard() {
-        val c = media
-        val meta = c?.metadata
-        if (c == null || meta == null) {
-            showInfo(R.drawable.ic_music, Ui.PINK, "Música", "Nada tocando agora.")
-            return
+        val busyDays = HashSet<Int>()
+        calendar.between(weekStart.timeInMillis, weekStart.timeInMillis + 7 * CalendarRepo.DAY, limit = 60).forEach {
+            busyDays.add(Calendar.getInstance().apply { timeInMillis = it.begin }.get(Calendar.DAY_OF_YEAR))
         }
-        val box = cardBox()
-        val row = LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val art = ImageView(ctx).apply {
-            setImageDrawable(mediaArtwork())
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            Ui.clipRound(this, Ui.dpf(ctx, 12f), Ui.SURFACE)
-        }
-        row.addView(art, LinearLayout.LayoutParams(dp(64), dp(64)))
-        val texts = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(Ui.text(ctx, 16f, Color.WHITE, value = meta.getString(MediaMetadata.METADATA_KEY_TITLE) ?: "Música", weight = Ui.Weight.SEMIBOLD).apply {
-                isSingleLine = true
-                ellipsize = TextUtils.TruncateAt.END
-            })
-            addView(Ui.text(ctx, 14f, Ui.SECONDARY, value = meta.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: "").apply {
-                isSingleLine = true
-                ellipsize = TextUtils.TruncateAt.END
-            }, lp(4))
-        }
-        row.addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(14) })
-        row.addView(WaveView(ctx).apply {
-            color = Ui.GREEN
-            active = isMusicPlaying
-        }, LinearLayout.LayoutParams(dp(22), dp(16)))
-        box.addView(row)
-
-        // Barra de progresso
-        val track = FrameLayout(ctx).apply { background = Ui.rounded(0x3DFFFFFF, Ui.dpf(ctx, 3f)) }
-        val fill = View(ctx).apply { background = Ui.rounded(0xE6FFFFFF.toInt(), Ui.dpf(ctx, 3f)) }
-        track.addView(fill, FrameLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT))
-        box.addView(track, lp(18, h = dp(5)))
-        val times = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
-        val elapsed = Ui.text(ctx, 11f, Ui.SECONDARY, weight = Ui.Weight.MEDIUM).apply { fontFeatureSettings = "tnum" }
-        val remaining = Ui.text(ctx, 11f, Ui.SECONDARY, weight = Ui.Weight.MEDIUM).apply {
-            fontFeatureSettings = "tnum"
-            gravity = Gravity.END
-        }
-        times.addView(elapsed, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        times.addView(remaining, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        box.addView(times, lp(6))
-        musicProgress = fill
-        musicElapsed = elapsed
-        musicRemaining = remaining
-
-        // Controles
-        val controls = LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-        controls.addView(Ui.circle(ctx, R.drawable.ic_prev, 52, bg = Color.TRANSPARENT, iconDp = 30) {
-            touched()
-            previousTrack()
-        })
-        val play = Ui.circle(ctx, if (isMusicPlaying) R.drawable.ic_pause else R.drawable.ic_play, 64, bg = Color.TRANSPARENT, iconDp = 42) {
-            touched()
-            playPause()
-        }
-        musicPlayIcon = (play as FrameLayout).getChildAt(0) as ImageView
-        controls.addView(play, LinearLayout.LayoutParams(dp(64), dp(64)).apply {
-            marginStart = dp(26)
-            marginEnd = dp(26)
-        })
-        controls.addView(Ui.circle(ctx, R.drawable.ic_next, 52, bg = Color.TRANSPARENT, iconDp = 30) {
-            touched()
-            nextTrack()
-        })
-        box.addView(controls, lp(8))
-
-        showCard(Card.MUSIC, box, 12_000)
-        track.post { updateMusicProgress() }
-        main.postDelayed(musicTick, 1_000)
-    }
-
-    private fun updateMusicProgress() {
-        val fill = musicProgress ?: return
-        val track = fill.parent as? View ?: return
-        val state = media?.playbackState
-        val duration = media?.metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
-        if (state == null || duration <= 0L) {
-            track.visibility = View.INVISIBLE
-            musicElapsed?.text = ""
-            musicRemaining?.text = ""
-            return
-        }
-        var position = state.position
-        if (state.state == PlaybackState.STATE_PLAYING) {
-            position += ((SystemClock.elapsedRealtime() - state.lastPositionUpdateTime) * state.playbackSpeed).toLong()
-        }
-        position = position.coerceIn(0L, duration)
-        track.visibility = View.VISIBLE
-        val w = (track.width * position.toFloat() / duration).roundToInt()
-        fill.layoutParams = FrameLayout.LayoutParams(w, ViewGroup.LayoutParams.MATCH_PARENT)
-        musicElapsed?.text = mmss(position)
-        musicRemaining?.text = "-" + mmss(duration - position)
-    }
-
-    private fun mmss(ms: Long): String {
-        val s = ms / 1000
-        return String.format(ptBR, "%d:%02d", s / 60, s % 60)
-    }
-
-    private fun mediaArtwork(): Drawable? {
-        val meta = media?.metadata
-        val bmp = meta?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) ?: meta?.getBitmap(MediaMetadata.METADATA_KEY_ART)
-        if (bmp != null) return BitmapDrawable(ctx.resources, bmp)
-        val pkg = media?.packageName ?: return null
-        return try {
-            ctx.packageManager.getApplicationIcon(pkg)
-        } catch (_: PackageManager.NameNotFoundException) {
-            null
-        }
-    }
-
-    // ----- Assistente -----
-
-    private fun showAssistant(body: String, orbState: OrbView.State, statusText: String, quote: Boolean = false) {
-        val box = cardBox()
-        val orb = OrbView(ctx).apply { state = orbState }
-        val statusView = Ui.text(ctx, 13f, Ui.SECONDARY, value = statusText, weight = Ui.Weight.MEDIUM)
-        val head = LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(orb, LinearLayout.LayoutParams(dp(42), dp(42)).apply { marginEnd = dp(12) })
-            val texts = LinearLayout(ctx).apply {
+        val letters = listOf("D", "S", "T", "Q", "Q", "S", "S")
+        val week = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        val day = weekStart.clone() as Calendar
+        for (i in 0 until 7) {
+            val isToday = day.get(Calendar.DAY_OF_YEAR) == now.get(Calendar.DAY_OF_YEAR)
+            val col = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
-                addView(Ui.text(ctx, 16f, Color.WHITE, value = prefs.assistantName, weight = Ui.Weight.SEMIBOLD))
-                addView(statusView, lp(3))
+                gravity = Gravity.CENTER_HORIZONTAL
+                addView(Ui.text(ctx, 11f, if (isToday) Color.WHITE else Ui.SECONDARY, value = letters[i], weight = Ui.Weight.SEMIBOLD))
+                addView(Ui.text(ctx, 16f, Color.WHITE, value = day.get(Calendar.DAY_OF_MONTH).toString(), weight = if (isToday) Ui.Weight.BOLD else Ui.Weight.MEDIUM).apply {
+                    gravity = Gravity.CENTER
+                    if (isToday) background = Ui.oval(Ui.RED)
+                }, LinearLayout.LayoutParams(dp(34), dp(34)).apply { topMargin = dp(6) })
+                addView(View(ctx).apply {
+                    background = Ui.oval(if (busyDays.contains(day.get(Calendar.DAY_OF_YEAR))) 0xCCFFFFFF.toInt() else Color.TRANSPARENT)
+                }, LinearLayout.LayoutParams(dp(5), dp(5)).apply { topMargin = dp(5) })
             }
-            addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            week.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            day.add(Calendar.DAY_OF_MONTH, 1)
         }
-        box.addView(head)
-        val bodyView = Ui.text(ctx, 18f, Color.WHITE, weight = Ui.Weight.MEDIUM).apply {
-            maxLines = 10
-            ellipsize = TextUtils.TruncateAt.END
-            setLineSpacing(Ui.dpf(ctx, 3f), 1f)
+        body.addView(week)
+
+        val today = calendar.today().take(3)
+        body.addView(sectionLabel("Hoje"), lp(14))
+        if (today.isEmpty()) body.addView(Ui.text(ctx, 15f, 0xD9FFFFFF.toInt(), value = "Nenhum evento. Dia livre!"), lp(8))
+        today.forEach { body.addView(eventRow(it, false), lp(6)) }
+        val later = calendar.upcoming(days = 14, limit = 12).filter { it.begin >= CalendarRepo.startOfDay(1) }.take(2)
+        if (later.isNotEmpty()) {
+            body.addView(sectionLabel("Próximos"), lp(14))
+            later.forEach { body.addView(eventRow(it, true), lp(6)) }
         }
-        box.addView(bodyView, lp(14))
-        val actions = LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(Ui.circle(ctx, R.drawable.ic_keyboard, 44, iconDp = 20) {
-                touched()
-                startTyping()
-            })
-            addView(View(ctx), LinearLayout.LayoutParams(0, 1, 1f))
-            addView(
-                Ui.capsule(ctx, "Falar", Ui.ButtonStyle.PRIMARY, R.drawable.ic_mic) { startVoice() },
-                LinearLayout.LayoutParams(dp(132), dp(44)),
-            )
-            addView(View(ctx), LinearLayout.LayoutParams(0, 1, 1f))
-            addView(Ui.circle(ctx, R.drawable.ic_close, 44, iconDp = 18) {
-                assistant.stopSpeaking()
-                showTab()
-            })
-        }
-        box.addView(actions, lp(18))
-        setBodyText(bodyView, body, quote)
-        showCard(Card.ASSISTANT, box, 12_000)
-        asstOrb = orb
-        asstStatus = statusView
-        asstBody = bodyView
+        body.addView(buttonRow(
+            capsule("Novo", iconRes = R.drawable.ic_add) { open(calendar.newEventIntent()) },
+            capsule("Salvar por voz", Ui.ButtonStyle.PRIMARY, R.drawable.ic_mic) { startVoice() },
+        ), lp(16))
+        return outer
     }
 
-    private fun setBodyText(view: TextView, text: String, quote: Boolean) {
-        view.text = if (quote && text.isNotBlank()) "“$text”" else text
-        view.setTextColor(if (quote) Ui.SECONDARY else Color.WHITE)
-        view.visibility = if (text.isBlank()) View.GONE else View.VISIBLE
-    }
+    // ----- Notas -----
 
-    private fun setAssistantBody(text: String, quote: Boolean) {
-        val body = asstBody ?: return
-        setBodyText(body, text, quote)
-        if (!quote) {
-            body.alpha = 0f
-            body.translationY = Ui.dpf(ctx, 6f)
-            body.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(380).setInterpolator(Ui.SPRING_SMOOTH).start()
+    private fun buildNotes(): View {
+        val all = notes.all()
+        val (outer, body) = expandedBox(
+            LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(Ui.iconTile(ctx, R.drawable.ic_note, Ui.YELLOW, 26, 16))
+                addView(Ui.text(ctx, 16f, Color.WHITE, value = "Notas", weight = Ui.Weight.SEMIBOLD).apply { setPadding(dp(8), 0, 0, 0) })
+            },
+            Ui.text(ctx, 14f, Ui.SECONDARY, value = "${all.size}"),
+        )
+        if (all.isEmpty()) {
+            body.addView(Ui.text(ctx, 15f, 0xD9FFFFFF.toInt(), value = "Nenhuma nota. Diga \"anota comprar pão\"."))
         }
-        resizeCard()
-    }
-
-    private fun openNotification(intent: PendingIntent?) {
-        unread = false
-        if (intent == null) return
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                val options = ActivityOptions.makeBasic()
-                    .setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
-                intent.send(ctx, 0, null, null, null, null, options.toBundle())
-            } else {
-                intent.send()
+        all.take(5).forEach { note ->
+            val row = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(14), dp(10), dp(6), dp(10))
+                background = Ui.rounded(Ui.SURFACE, Ui.dpf(ctx, 14f))
+                val texts = LinearLayout(ctx).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(Ui.text(ctx, 15f, Color.WHITE, value = note.text, weight = Ui.Weight.MEDIUM).apply {
+                        maxLines = 2
+                        ellipsize = TextUtils.TruncateAt.END
+                    })
+                    addView(Ui.text(ctx, 12f, Ui.SECONDARY, value = SimpleDateFormat("d MMM, HH:mm", ptBR).format(Date(note.time))), lp(3))
+                }
+                addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                addView(Ui.circle(ctx, R.drawable.ic_close, 34, bg = Color.TRANSPARENT, tint = Ui.SECONDARY, iconDp = 16) {
+                    notes.remove(note)
+                    expand(Kind.NOTES, rebuild = true)
+                })
             }
-        } catch (_: PendingIntent.CanceledException) {
+            body.addView(row, lp(6))
         }
-        showTab()
+        body.addView(buttonRow(capsule("Ditar nota", Ui.ButtonStyle.PRIMARY, R.drawable.ic_mic) { startVoice() }), lp(14))
+        return outer
     }
 
     // =====================================================================
-    // Montagem e toques
+    // Toques
     // =====================================================================
 
-    private fun buildViews() {
-        root.background = background
-        root.outlineProvider = ViewOutlineProvider.BACKGROUND
-        root.clipToOutline = true
-
-        tabLayer.addView(tabIndicator, FrameLayout.LayoutParams(dp(4), dp(38), Gravity.CENTER))
-        topRow.orientation = LinearLayout.HORIZONTAL
-        topRow.gravity = Gravity.CENTER_VERTICAL
-        topRow.addView(topLeading, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
-        topRow.addView(topGap, LinearLayout.LayoutParams(dp(40), 1))
-        topRow.addView(topTrailing, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
-        tabLayer.addView(topRow, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(28), Gravity.TOP))
-        buildDock()
-
-        for (layer in listOf(tabLayer, dockLayer, cardLayer)) {
-            root.addView(layer, layerParams(tabW, tabH))
-        }
-        dockLayer.visibility = View.INVISIBLE
-        cardLayer.visibility = View.INVISIBLE
-        updateTabIndicator()
-
+    private fun setupTouches() {
         val slop = ViewConfiguration.get(ctx).scaledTouchSlop
         var downX = 0f
         var downY = 0f
-        var startY = 0
-        var dragging = false
-        var longPressed = false
+        var consumed = false
+        var moved = false
         val longPress = Runnable {
-            if (mode == Mode.TAB) {
-                longPressed = true
-                Ui.haptic(root, strong = true)
-                startVoice() // segurar a ilha = falar com a assistente
+            if (expanded == null) {
+                consumed = true
+                Ui.haptic(windowRoot, strong = true)
+                startVoice() // segurar = falar com a assistente
             }
         }
-        root.setOnTouchListener { v, e ->
+        windowRoot.setOnTouchListener { v, e ->
             when (e.actionMasked) {
                 MotionEvent.ACTION_OUTSIDE -> {
-                    if (mode != Mode.TAB && !busy) showTab()
+                    if (expanded != null && !busy) collapse()
                     false
                 }
                 MotionEvent.ACTION_DOWN -> {
                     downX = e.rawX
                     downY = e.rawY
-                    startY = params.y
-                    dragging = false
-                    longPressed = false
+                    consumed = false
+                    moved = false
                     touched()
-                    if (mode == Mode.TAB) main.postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
-                    mode == Mode.TAB
+                    if (expanded == null) main.postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
+                    true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (mode != Mode.TAB || longPressed) return@setOnTouchListener false
                     val dy = e.rawY - downY
-                    val dx = e.rawX - downX
-                    if (abs(dx) > slop || abs(dy) > slop) main.removeCallbacks(longPress)
-                    if (onTop) {
-                        if (dy > slop * 2) {
-                            Ui.haptic(v)
-                            showDock() // puxou a ilha para baixo
-                        }
-                        return@setOnTouchListener true
+                    if (abs(e.rawX - downX) > slop || abs(dy) > slop) {
+                        moved = true
+                        main.removeCallbacks(longPress)
                     }
-                    val inward = if (rightSide) -dx else dx
-                    if (!dragging && inward > slop * 2 && abs(dx) > abs(dy)) {
+                    if (!consumed && expanded == null && dy > slop * 2) {
                         Ui.haptic(v)
-                        showDock() // puxou a alcinha para dentro
-                        return@setOnTouchListener true
-                    }
-                    if (dragging || abs(dy) > slop) {
-                        dragging = true
-                        sizeAnimator?.cancel()
-                        params.y = (startY + dy).roundToInt().coerceIn(dp(48), screenHeight() - tabH - dp(48))
-                        wm.updateViewLayout(root, params)
+                        expand(defaultExpandKind(), rebuild = true)
+                        consumed = true
+                    } else if (!consumed && expanded != null && dy < -slop * 3) {
+                        collapse()
+                        consumed = true
                     }
                     true
                 }
                 MotionEvent.ACTION_UP -> {
                     main.removeCallbacks(longPress)
-                    if (mode != Mode.TAB || longPressed) return@setOnTouchListener false
-                    if (dragging) {
-                        val top = dp(48)
-                        val range = (screenHeight() - tabH - dp(96) - top).coerceAtLeast(1)
-                        prefs.positionY = (params.y - top).toFloat() / range
-                    } else {
+                    if (!consumed && !moved && expanded == null) {
                         Ui.haptic(v)
-                        showDock()
+                        expand(defaultExpandKind(), rebuild = true)
                     }
                     true
                 }
-                else -> {
-                    if (e.actionMasked == MotionEvent.ACTION_CANCEL) main.removeCallbacks(longPress)
-                    mode == Mode.TAB
+                MotionEvent.ACTION_CANCEL -> {
+                    main.removeCallbacks(longPress)
+                    true
                 }
+                else -> true
             }
         }
     }
