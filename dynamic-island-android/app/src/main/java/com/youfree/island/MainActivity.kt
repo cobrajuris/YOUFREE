@@ -6,8 +6,6 @@ import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -19,29 +17,21 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.SeekBar
-import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import kotlin.math.roundToInt
 
-/** Tela de configuração: ligar a ilha, permissões, chave do Claude e posição. */
+/** Tela de configuração no estilo dos Ajustes do iPhone. */
 class MainActivity : Activity() {
 
     private lateinit var prefs: Prefs
-    private lateinit var islandSwitch: Switch
-    private lateinit var overlayStatus: TextView
-    private lateinit var micStatus: TextView
-    private lateinit var agendaStatus: TextView
-    private lateinit var notifStatus: TextView
-    private lateinit var brightStatus: TextView
-    private lateinit var sideRight: Button
-    private lateinit var sideLeft: Button
-    private var updatingSwitch = false
+    private lateinit var islandSwitch: IosSwitch
+    private val statusViews = HashMap<String, LinearLayout>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,157 +39,119 @@ class MainActivity : Activity() {
 
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(28), dp(20), dp(40))
+            setPadding(dp(16), dp(20), dp(16), dp(48))
         }
         setContentView(ScrollView(this).apply {
-            setBackgroundColor(BG)
+            setBackgroundColor(Ui.BG)
+            isVerticalScrollBarEnabled = false
             addView(column)
         })
 
-        column.addView(text("Ilha Assistente", 28f, Color.WHITE, bold = true))
-        column.addView(text("Uma ilha na borda da tela com hora, sinal, Wi-Fi, brilho, volume, bateria, agenda, mensagens e uma assistente de voz.", 15f, MUTED).apply {
-            setPadding(0, dp(6), 0, dp(18))
-        })
+        column.addView(Ui.text(this, 34f, Color.WHITE, value = "Ilha", weight = Ui.Weight.DISPLAY), lp(top = 8, side = 4))
+        column.addView(hero(), lp(top = 16))
 
         // ---------------- Ligar ----------------
-        @Suppress("DEPRECATION")
-        islandSwitch = Switch(this).apply {
-            text = "Ilha ligada"
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            setOnCheckedChangeListener { _, on -> if (!updatingSwitch) toggleIsland(on) }
+        islandSwitch = IosSwitch(this).apply {
+            setChecked(prefs.enabled && Settings.canDrawOverlays(this@MainActivity), animate = false)
+            onChange = { toggleIsland(it) }
         }
-        column.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(10), dp(16), dp(10))
-            background = rounded(CARD)
-            addView(islandSwitch, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
-        })
-        column.addView(button("Testar a ilha") {
-            val c = IslandHub.controller
-            if (c == null) toast("Ligue a ilha primeiro.") else c.showDemo()
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(10) }
-        })
+        column.addView(group(null, null, listOf(
+            row(R.drawable.ic_power, Ui.GREEN, "Ilha ligada", "Fica na borda da tela", islandSwitch),
+            row(R.drawable.ic_sparkle, Ui.INDIGO, "Testar a ilha", null, chevron()) {
+                val c = IslandHub.controller
+                if (c == null) toast("Ligue a ilha primeiro.") else c.showDemo()
+            },
+        )), lp(top = 24))
 
         // ---------------- Permissões ----------------
-        column.addView(section("1. Mostrar sobre outros apps (obrigatório)"))
-        overlayStatus = status()
-        column.addView(card(
-            "É o que deixa a ilha aparecer na borda da tela. Na lista, ache \"Ilha Assistente\" e ative.",
-            overlayStatus,
-            button("Permitir sobreposição") {
-                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-            },
-        ))
+        column.addView(group(
+            "Permissões",
+            "Se \"Mensagens e música\" aparecer cinza ou como \"configuração restrita\", toque em \"Configurações restritas\", " +
+                "depois nos ⋮ no canto de cima e em \"Permitir configurações restritas\".",
+            listOf(
+                statusRow("overlay", R.drawable.ic_layers, Ui.BLUE, "Mostrar sobre outros apps", "Obrigatório") {
+                    startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+                },
+                statusRow("mic", R.drawable.ic_mic, Ui.ORANGE, "Microfone", "Para falar com a assistente") {
+                    requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 10)
+                },
+                statusRow("agenda", R.drawable.ic_calendar, Ui.RED, "Agenda e contatos", "Compromissos, ligações e WhatsApp") {
+                    requestPermissions(
+                        arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR, Manifest.permission.READ_CONTACTS),
+                        11,
+                    )
+                },
+                statusRow("notif", R.drawable.ic_chat, Ui.GREEN, "Mensagens e música", "Opcional") {
+                    startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                },
+                statusRow("bright", R.drawable.ic_brightness, Ui.BLUE, "Brilho da tela", "Opcional") {
+                    startActivity(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:$packageName")))
+                },
+                row(R.drawable.ic_shield, Ui.GRAY, "Configurações restritas", null, chevron()) {
+                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+                },
+            ),
+        ), lp(top = 28))
 
-        column.addView(section("2. Microfone"))
-        micStatus = status()
-        column.addView(card(
-            "Para conversar por voz com a assistente.",
-            micStatus,
-            button("Permitir microfone") { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 10) },
-        ))
-
-        column.addView(section("3. Agenda e contatos"))
-        agendaStatus = status()
-        column.addView(card(
-            "Mostra seus compromissos, avisa 10 minutos antes, marca eventos por voz e liga ou manda WhatsApp para seus contatos.",
-            agendaStatus,
-            button("Permitir agenda e contatos") {
-                requestPermissions(
-                    arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR, Manifest.permission.READ_CONTACTS),
-                    11,
-                )
-            },
-        ))
-
-        column.addView(section("4. Mensagens e música (opcional)"))
-        notifStatus = status()
-        column.addView(card(
-            "Mostra as mensagens que chegam (WhatsApp, Instagram...) num cartão na borda e controla a música tocando.",
-            notifStatus,
-            button("Abrir acesso a notificações") {
-                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-            },
-        ))
-        column.addView(card(
-            "Se aparecer cinza ou \"Configuração restrita\": toque no botão abaixo, depois nos ⋮ no canto de cima e em " +
-                "\"Permitir configurações restritas\". Volte e ative de novo.",
-            null,
-            button("Abrir informações do app", primary = false) {
-                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
-            },
-        ))
-
-        column.addView(section("5. Brilho (opcional)"))
-        brightStatus = status()
-        column.addView(card(
-            "Deixa a ilha e a assistente mudarem o brilho da tela.",
-            brightStatus,
-            button("Permitir mudar o brilho") {
-                startActivity(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:$packageName")))
-            },
-        ))
-
-        // ---------------- Posição ----------------
-        column.addView(section("Posição"))
-        sideRight = button("Borda direita", primary = prefs.rightSide) { setSide(true) }
-        sideLeft = button("Borda esquerda", primary = !prefs.rightSide) { setSide(false) }
-        column.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            addView(sideLeft, LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginEnd = dp(8) })
-            addView(sideRight, LinearLayout.LayoutParams(0, dp(46), 1f))
-        })
-        column.addView(slider("Altura na tela", (prefs.positionY * 100).roundToInt()) {
-            prefs.positionY = it / 100f
+        // ---------------- Aparência ----------------
+        val segmented = Segmented(this, listOf("Esquerda", "Direita"), if (prefs.rightSide) 1 else 0) { i ->
+            prefs.rightSide = i == 1
             IslandHub.controller?.applyPrefs()
-        })
-        column.addView(text("Dica: você também pode arrastar a alcinha para cima e para baixo.", 13f, MUTED).apply {
-            setPadding(0, dp(6), 0, 0)
-        })
+        }
+        val height = PillSlider(this, R.drawable.ic_updown).apply {
+            value = prefs.positionY
+            onChange = {
+                prefs.positionY = it
+                IslandHub.controller?.applyPrefs()
+            }
+        }
+        val appearance = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(16))
+            addView(Ui.text(this@MainActivity, 15f, Color.WHITE, value = "Borda da tela"))
+            addView(segmented, lp(top = 10, h = dp(34)))
+            addView(Ui.text(this@MainActivity, 15f, Color.WHITE, value = "Altura na tela"), lp(top = 18))
+            addView(height, lp(top = 10, h = dp(44)))
+        }
+        column.addView(group("Aparência", "Você também pode arrastar a alcinha para cima e para baixo direto na tela.", listOf(appearance)), lp(top = 28))
 
         // ---------------- Assistente ----------------
-        column.addView(section("Assistente"))
-        column.addView(label("Nome da assistente"))
-        column.addView(input(prefs.assistantName, "Ilha") { prefs.assistantName = it })
-        column.addView(label("Sua cidade (para clima e notícias)"))
-        column.addView(input(prefs.city, "Ex.: São Paulo") { prefs.city = it })
-        column.addView(label("Chave da API do Claude (opcional)"))
-        column.addView(input(prefs.apiKey, "sk-ant-...", secret = true) { prefs.apiKey = it })
-        column.addView(text(
-            "Sem chave, a assistente já faz os comandos do celular. Com a chave, responde qualquer pergunta e busca clima, " +
-                "notícias e resultados na internet. Crie em console.anthropic.com → API Keys (uso pago). A chave fica só neste celular.",
-            13f, MUTED,
-        ).apply { setPadding(0, dp(6), 0, 0) })
-        column.addView(label("Modelo do Claude"))
-        column.addView(input(prefs.model, ClaudeClient.DEFAULT_MODEL) { prefs.model = it })
+        column.addView(group(
+            "Assistente",
+            "Sem chave, a assistente já faz os comandos do celular. Com a chave do Claude (console.anthropic.com → API Keys, uso pago), " +
+                "responde qualquer pergunta e busca clima e notícias. A chave fica só neste celular.",
+            listOf(
+                inputRow(R.drawable.ic_person, Ui.PURPLE, "Nome", prefs.assistantName, "Ilha") { prefs.assistantName = it },
+                inputRow(R.drawable.ic_place, Ui.RED, "Cidade", prefs.city, "São Paulo") { prefs.city = it },
+                inputRow(R.drawable.ic_key, Ui.GRAY, "Chave", prefs.apiKey, "sk-ant-…", secret = true) { prefs.apiKey = it },
+                inputRow(R.drawable.ic_sparkle, Ui.INDIGO, "Modelo", prefs.model, ClaudeClient.DEFAULT_MODEL) { prefs.model = it },
+            ),
+        ), lp(top = 28))
 
-        column.addView(switch("Falar as respostas em voz alta", prefs.speakReplies) { prefs.speakReplies = it })
-        column.addView(switch("Mostrar mensagens na ilha", prefs.showNotifications) { prefs.showNotifications = it })
-        column.addView(switch("Avisar 10 min antes dos compromissos", prefs.eventReminders) { prefs.eventReminders = it })
+        column.addView(group(null, null, listOf(
+            switchRow(R.drawable.ic_speaker, Ui.PINK, "Falar as respostas", prefs.speakReplies) { prefs.speakReplies = it },
+            switchRow(R.drawable.ic_bell, Ui.RED, "Mostrar mensagens", prefs.showNotifications) { prefs.showNotifications = it },
+            switchRow(R.drawable.ic_calendar, Ui.ORANGE, "Avisar antes dos compromissos", prefs.eventReminders) { prefs.eventReminders = it },
+        )), lp(top = 20))
 
-        column.addView(section("Como usar"))
-        column.addView(text(
-            "• Toque na alcinha da borda (ou puxe para dentro) para abrir a coluna.\n" +
-                "• Toque na hora ou no calendário para ver a agenda; no brilho, volume ou bateria para os controles; " +
-                "no Wi-Fi ou no sinal para as conexões; no raio para a lanterna; no microfone para falar.\n" +
-                "• Exemplos para falar: \"marca dentista sexta às 10\", \"o que eu tenho amanhã?\", \"liga para a Maria\", " +
-                "\"manda mensagem pro João dizendo já estou chegando\", \"aumenta o volume\", \"brilho em 50\", " +
-                "\"modo vibrar\", \"timer de 5 minutos\", \"alarme às 7 e 30\", \"pausa a música\", \"vai chover hoje?\".\n" +
-                "• A ilha some na horizontal (vídeos e jogos).",
-            14f, 0xFFD6D6DE.toInt(),
-        ).apply { setLineSpacing(dp(4).toFloat(), 1f) })
+        // ---------------- Dicas ----------------
+        val tips = listOf(
+            "Toque na alcinha da borda, ou puxe para dentro, para abrir.",
+            "Toque na hora ou no calendário para ver sua agenda.",
+            "Brilho, volume ou bateria abrem os controles.",
+            "\"Marca dentista sexta às 10\"",
+            "\"O que eu tenho amanhã?\"",
+            "\"Manda mensagem pro João dizendo já estou chegando\"",
+            "\"Vai chover hoje?\"",
+        )
+        column.addView(group("Como usar", "A ilha some sozinha na horizontal, em vídeos e jogos.", tips.map { tipRow(it) }), lp(top = 28))
     }
 
     override fun onResume() {
         super.onResume()
         refreshStatus()
         // Voltou de dar a permissão de sobreposição: liga sozinho.
-        if (prefs.enabled && Settings.canDrawOverlays(this) && !IslandService.isRunning) {
-            startIsland()
-        }
+        if (prefs.enabled && Settings.canDrawOverlays(this) && !IslandService.isRunning) startIsland()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
@@ -222,9 +174,7 @@ class MainActivity : Activity() {
     }
 
     private fun startIsland() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !granted(Manifest.permission.POST_NOTIFICATIONS)) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 12)
         }
         try {
@@ -232,140 +182,199 @@ class MainActivity : Activity() {
         } catch (e: Exception) {
             toast("Não consegui ligar a ilha: ${e.message}")
         }
-        islandSwitch.postDelayed({ refreshStatus() }, 400)
-    }
-
-    private fun setSide(right: Boolean) {
-        prefs.rightSide = right
-        paintButton(sideRight, right)
-        paintButton(sideLeft, !right)
-        IslandHub.controller?.applyPrefs()
     }
 
     private fun refreshStatus() {
-        updatingSwitch = true
-        islandSwitch.isChecked = prefs.enabled && Settings.canDrawOverlays(this)
-        updatingSwitch = false
-
-        setStatus(overlayStatus, Settings.canDrawOverlays(this))
-        setStatus(micStatus, granted(Manifest.permission.RECORD_AUDIO))
-        setStatus(agendaStatus, granted(Manifest.permission.READ_CALENDAR) && granted(Manifest.permission.READ_CONTACTS))
+        islandSwitch.setChecked(prefs.enabled && Settings.canDrawOverlays(this), animate = false)
+        setStatus("overlay", Settings.canDrawOverlays(this))
+        setStatus("mic", granted(Manifest.permission.RECORD_AUDIO))
+        setStatus("agenda", granted(Manifest.permission.READ_CALENDAR) && granted(Manifest.permission.READ_CONTACTS))
         val listeners = Settings.Secure.getString(contentResolver, "enabled_notification_listeners").orEmpty()
-        setStatus(notifStatus, listeners.split(":").any { ComponentName.unflattenFromString(it)?.packageName == packageName })
-        setStatus(brightStatus, Settings.System.canWrite(this))
+        setStatus("notif", listeners.split(":").any { ComponentName.unflattenFromString(it)?.packageName == packageName })
+        setStatus("bright", Settings.System.canWrite(this))
     }
 
     private fun granted(p: String) = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
 
-    private fun setStatus(view: TextView, ok: Boolean) {
-        view.text = if (ok) "✓ Ativado" else "• Pendente"
-        view.setTextColor(if (ok) Ui.GREEN else 0xFFFFB86B.toInt())
-    }
-
-    // ---------------- Fábrica de views ----------------
-
-    private fun rounded(color: Int, radius: Int = 18) = GradientDrawable().apply {
-        cornerRadius = dp(radius).toFloat()
-        setColor(color)
-    }
-
-    private fun section(title: String) = text(title, 18f, Color.WHITE, bold = true).apply {
-        setPadding(0, dp(26), 0, dp(10))
-    }
-
-    private fun label(title: String) = text(title, 14f, 0xFFD6D6DE.toInt()).apply {
-        setPadding(0, dp(14), 0, dp(6))
-    }
-
-    private fun status() = text("", 14f, MUTED, bold = true)
-
-    private fun card(description: String, status: TextView?, action: Button) = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(16), dp(14), dp(16), dp(14))
-        background = rounded(CARD)
-        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            bottomMargin = dp(10)
+    private fun setStatus(key: String, ok: Boolean) {
+        val box = statusViews[key] ?: return
+        val icon = box.getChildAt(0) as ImageView
+        val label = box.getChildAt(1) as TextView
+        if (ok) {
+            icon.setImageResource(R.drawable.ic_check)
+            icon.imageTintList = android.content.res.ColorStateList.valueOf(Ui.GREEN)
+            icon.visibility = View.VISIBLE
+            label.text = "Ativado"
+            label.setTextColor(Ui.SECONDARY)
+        } else {
+            icon.visibility = View.GONE
+            label.text = "Ativar"
+            label.setTextColor(Ui.BLUE)
         }
-        if (status != null) addView(status)
-        addView(text(description, 14f, 0xFFD6D6DE.toInt()).apply { setPadding(0, dp(4), 0, dp(10)) })
-        addView(action, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)))
     }
 
-    private fun button(label: String, primary: Boolean = true, onClick: () -> Unit) = Button(this).apply {
-        text = label
-        isAllCaps = false
-        setTextColor(Color.WHITE)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-        paintButton(this, primary)
-        setOnClickListener { onClick() }
-    }
+    // ---------------- Componentes ----------------
 
-    private fun paintButton(b: Button, primary: Boolean) {
-        b.background = rounded(if (primary) Ui.ACCENT else 0xFF2A2A35.toInt(), 23)
-    }
-
-    private fun input(value: String, hint: String, secret: Boolean = false, onChange: (String) -> Unit) = EditText(this).apply {
-        setText(value)
-        this.hint = hint
-        setHintTextColor(0xFF5E5E6A.toInt())
-        setTextColor(Color.WHITE)
-        isSingleLine = true
-        inputType = if (secret) InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD else InputType.TYPE_CLASS_TEXT
-        setPadding(dp(14), dp(12), dp(14), dp(12))
-        background = rounded(CARD, 14)
-        addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-            override fun afterTextChanged(s: Editable?) = onChange(s?.toString().orEmpty())
-        })
-    }
-
-    @Suppress("DEPRECATION")
-    private fun switch(label: String, checked: Boolean, onChange: (Boolean) -> Unit) = Switch(this).apply {
-        text = label
-        isChecked = checked
-        setTextColor(Color.WHITE)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-        setPadding(0, dp(14), 0, 0)
-        setOnCheckedChangeListener { _, value -> onChange(value) }
-    }
-
-    private fun slider(title: String, value: Int, onChange: (Int) -> Unit): View {
-        val box = LinearLayout(this).apply {
+    /** Prévia da ilha sobre um "papel de parede", como na imagem de referência. */
+    private fun hero(): View {
+        val frame = FrameLayout(this).apply {
+            background = Ui.gradient(Ui.dpf(this@MainActivity, 26f), 0xFF2B1B5C.toInt(), 0xFF6A3FC4.toInt(), 0xFFB37BE8.toInt(), 0xFF7FA8FF.toInt())
+            outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
+            clipToOutline = true
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(220))
+        }
+        val texts = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(14), 0, 0)
+            addView(Ui.text(this@MainActivity, 13f, 0xCCFFFFFF.toInt(), value = "ILHA ASSISTENTE", weight = Ui.Weight.SEMIBOLD).apply { letterSpacing = 0.08f })
+            addView(Ui.text(this@MainActivity, 26f, Color.WHITE, value = "Tudo à mão,\nna borda da tela.", weight = Ui.Weight.DISPLAY).apply {
+                setLineSpacing(0f, 1.05f)
+            }, lp(top = 8))
+            addView(Ui.text(this@MainActivity, 14f, 0xD9FFFFFF.toInt(), value = "Agenda, mensagens, música,\ncontroles e uma assistente de voz."), lp(top = 10))
         }
-        box.addView(text(title, 14f, 0xFFD6D6DE.toInt()))
-        box.addView(SeekBar(this).apply {
-            max = 100
-            progress = value.coerceIn(0, 100)
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    if (fromUser) onChange(progress)
-                }
-
-                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
-                override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
-            })
+        frame.addView(texts, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.START or Gravity.CENTER_VERTICAL).apply {
+            marginStart = dp(22)
         })
-        return box
+
+        // Mini coluna da ilha presa na borda direita
+        val dock = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(0, dp(12), dp(14), dp(12))
+            background = Ui.rounded(Color.BLACK, Ui.dpf(this@MainActivity, 22f), Ui.HAIRLINE, 1)
+            addView(Ui.text(this@MainActivity, 13f, Color.WHITE, value = "9:41", weight = Ui.Weight.DISPLAY))
+            addView(SignalView(this@MainActivity).apply { level = 4 }, LinearLayout.LayoutParams(dp(14), dp(10)).apply { topMargin = dp(12) })
+            for (res in listOf(R.drawable.ic_wifi, R.drawable.ic_brightness, R.drawable.ic_volume)) {
+                addView(Ui.icon(this@MainActivity, res), LinearLayout.LayoutParams(dp(15), dp(15)).apply { topMargin = dp(12) })
+            }
+            addView(BatteryView(this@MainActivity).apply { percent = 80 }, LinearLayout.LayoutParams(dp(20), dp(10)).apply { topMargin = dp(12) })
+        }
+        frame.addView(dock, FrameLayout.LayoutParams(dp(56), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.END or Gravity.CENTER_VERTICAL).apply {
+            marginEnd = -dp(12)
+        })
+        return frame
     }
 
-    private fun text(value: String, sp: Float, color: Int, bold: Boolean = false) = TextView(this).apply {
-        text = value
-        setTextColor(color)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
-        gravity = Gravity.START
-        if (bold) typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    private fun group(title: String?, footer: String?, rows: List<View>): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        if (title != null) {
+            addView(Ui.text(this@MainActivity, 13f, Ui.SECONDARY, value = title.uppercase(), weight = Ui.Weight.MEDIUM).apply {
+                letterSpacing = 0.04f
+            }, lp(side = 16).apply { bottomMargin = dp(8) })
+        }
+        val card = LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.VERTICAL
+            background = Ui.rounded(Ui.SURFACE, Ui.dpf(this@MainActivity, 14f))
+            clipToOutline = true
+            outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
+        }
+        rows.forEachIndexed { i, r ->
+            if (i > 0) {
+                card.addView(View(this@MainActivity).apply { setBackgroundColor(Ui.SEPARATOR) },
+                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(1) / 2)).apply { marginStart = dp(58) })
+            }
+            card.addView(r)
+        }
+        addView(card)
+        if (footer != null) {
+            addView(Ui.text(this@MainActivity, 13f, Ui.SECONDARY, value = footer).apply {
+                setLineSpacing(Ui.dpf(this@MainActivity, 2f), 1f)
+            }, lp(top = 8, side = 16))
+        }
     }
+
+    private fun row(iconRes: Int, color: Int, title: String, subtitle: String?, trailing: View?, onClick: (() -> Unit)? = null): View =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(54)
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            addView(Ui.iconTile(this@MainActivity, iconRes, color, 30, 18), LinearLayout.LayoutParams(dp(30), dp(30)).apply { marginEnd = dp(14) })
+            val texts = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(Ui.text(this@MainActivity, 16f, Color.WHITE, value = title))
+                if (subtitle != null) addView(Ui.text(this@MainActivity, 13f, Ui.SECONDARY, value = subtitle), lp(top = 3))
+            }
+            addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            if (trailing != null) addView(trailing)
+            if (onClick != null) {
+                background = android.graphics.drawable.RippleDrawable(
+                    android.content.res.ColorStateList.valueOf(0x22FFFFFF), null, android.graphics.drawable.ColorDrawable(Color.WHITE),
+                )
+                setOnClickListener {
+                    Ui.haptic(it)
+                    onClick()
+                }
+            }
+        }
+
+    private fun chevron() = Ui.icon(this, R.drawable.ic_chevron, Ui.TERTIARY).apply {
+        layoutParams = LinearLayout.LayoutParams(dp(20), dp(20))
+    }
+
+    private fun statusRow(key: String, iconRes: Int, color: Int, title: String, subtitle: String, onClick: () -> Unit): View {
+        val trailing = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(ImageView(this@MainActivity), LinearLayout.LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(4) })
+            addView(Ui.text(this@MainActivity, 15f, Ui.SECONDARY))
+            addView(chevron())
+        }
+        statusViews[key] = trailing
+        return row(iconRes, color, title, subtitle, trailing, onClick)
+    }
+
+    private fun switchRow(iconRes: Int, color: Int, title: String, checked: Boolean, onChange: (Boolean) -> Unit): View {
+        val sw = IosSwitch(this).apply {
+            setChecked(checked, animate = false)
+            this.onChange = onChange
+        }
+        return row(iconRes, color, title, null, sw)
+    }
+
+    private fun inputRow(iconRes: Int, color: Int, label: String, value: String, hint: String, secret: Boolean = false, onChange: (String) -> Unit): View {
+        val input = EditText(this).apply {
+            setText(value)
+            this.hint = hint
+            setHintTextColor(Ui.TERTIARY)
+            setTextColor(Ui.SECONDARY)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            typeface = Ui.font(this@MainActivity, Ui.Weight.REGULAR)
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            isSingleLine = true
+            background = null
+            setPadding(0, 0, 0, 0)
+            inputType = if (secret) InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD else InputType.TYPE_CLASS_TEXT
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                override fun afterTextChanged(s: Editable?) = onChange(s?.toString().orEmpty())
+            })
+            layoutParams = LinearLayout.LayoutParams(dp(170), ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        return row(iconRes, color, label, null, input)
+    }
+
+    private fun tipRow(text: String): View = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(16), dp(13), dp(16), dp(13))
+        addView(View(this@MainActivity).apply { background = Ui.oval(Ui.BLUE) }, LinearLayout.LayoutParams(dp(6), dp(6)).apply {
+            marginStart = dp(12)
+            marginEnd = dp(26)
+        })
+        addView(Ui.text(this@MainActivity, 15f, Color.WHITE, value = text).apply {
+            setLineSpacing(Ui.dpf(this@MainActivity, 2f), 1f)
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+    }
+
+    private fun lp(top: Int = 0, side: Int = 0, h: Int = ViewGroup.LayoutParams.WRAP_CONTENT) =
+        LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, h).apply {
+            topMargin = dp(top)
+            marginStart = dp(side)
+            marginEnd = dp(side)
+        }
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).roundToInt()
-
-    companion object {
-        private val BG = 0xFF0B0B10.toInt()
-        private val CARD = 0xFF17171F.toInt()
-        private val MUTED = 0xFF9A9AA5.toInt()
-    }
 }

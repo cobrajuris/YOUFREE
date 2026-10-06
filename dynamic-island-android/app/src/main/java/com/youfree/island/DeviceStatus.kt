@@ -1,5 +1,6 @@
 package com.youfree.island
 
+import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.Intent
 import android.hardware.camera2.CameraAccessException
@@ -78,6 +79,12 @@ class DeviceStatus(private val ctx: Context) {
     }
 
     fun carrierName(): String = telephony?.networkOperatorName.orEmpty()
+
+    fun isBluetoothOn(): Boolean = try {
+        ctx.getSystemService(BluetoothManager::class.java)?.adapter?.isEnabled == true
+    } catch (_: SecurityException) {
+        false
+    }
 
     // ----- Brilho -----
 

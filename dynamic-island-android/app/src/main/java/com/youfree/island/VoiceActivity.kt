@@ -2,7 +2,6 @@ package com.youfree.island
 
 import android.Manifest
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -10,10 +9,18 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.graphics.Color
+import android.text.Editable
 import android.text.InputType
-import android.view.WindowManager
+import android.text.TextWatcher
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.Toast
 
 /**
@@ -22,6 +29,7 @@ import android.widget.Toast
  */
 class VoiceActivity : Activity() {
 
+    private lateinit var rootView: FrameLayout
     private var recognizer: SpeechRecognizer? = null
     private var delivered = false
 
@@ -30,9 +38,10 @@ class VoiceActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(FrameLayout(this).apply {
+        rootView = FrameLayout(this).apply {
             setOnClickListener { cancel() }
-        })
+        }
+        setContentView(rootView)
 
         if (intent.getBooleanExtra(EXTRA_TYPING, false)) {
             showTypingDialog()
@@ -121,34 +130,67 @@ class VoiceActivity : Activity() {
         if (resultCode == RESULT_OK && !text.isNullOrBlank()) deliver(text) else cancel()
     }
 
+    /** Barra flutuante de digitar, no estilo "Digitar para a Siri". */
     private fun showTypingDialog() {
+        val root = rootView
+        root.setBackgroundColor(0x59000000)
+        root.alpha = 0f
+        root.animate().alpha(1f).setDuration(220).start()
+
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(Ui.dp(context, 12), Ui.dp(context, 8), Ui.dp(context, 8), Ui.dp(context, 8))
+            background = Ui.rounded(Ui.SURFACE, Ui.dpf(context, 28f), Ui.HAIRLINE, 1)
+            elevation = Ui.dpf(context, 12f)
+            isClickable = true
+        }
+        bar.addView(OrbView(this), LinearLayout.LayoutParams(Ui.dp(this, 30), Ui.dp(this, 30)))
         val input = EditText(this).apply {
-            hint = "Pergunte qualquer coisa…"
+            hint = "Pergunte à ${Prefs(this@VoiceActivity).assistantName}…"
+            setHintTextColor(Ui.TERTIARY)
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
+            typeface = Ui.font(this@VoiceActivity, Ui.Weight.REGULAR)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            imeOptions = EditorInfo.IME_ACTION_SEND
             isSingleLine = true
+            background = null
+            setPadding(Ui.dp(context, 12), 0, Ui.dp(context, 8), 0)
         }
-        val pad = (20 * resources.displayMetrics.density).toInt()
-        val box = FrameLayout(this).apply {
-            setPadding(pad, pad / 2, pad, 0)
-            addView(input)
+        bar.addView(input, LinearLayout.LayoutParams(0, Ui.dp(this, 44), 1f))
+        val send = Ui.circle(this, R.drawable.ic_arrow_up, 38, bg = Ui.FILL, iconDp = 20) {
+            val text = input.text.toString().trim()
+            if (text.isNotEmpty()) deliver(text)
         }
-        val dialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-            .setTitle(Prefs(this).assistantName)
-            .setView(box)
-            .setPositiveButton("Enviar") { _, _ ->
-                val text = input.text.toString().trim()
-                if (text.isNotEmpty()) deliver(text) else cancel()
+        send.alpha = 0.5f
+        bar.addView(send, LinearLayout.LayoutParams(Ui.dp(this, 38), Ui.dp(this, 38)))
+        input.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: Editable?) {
+                val ready = !s.isNullOrBlank()
+                send.background = Ui.oval(if (ready) Ui.BLUE else Ui.FILL)
+                send.alpha = if (ready) 1f else 0.5f
             }
-            .setNegativeButton("Cancelar") { _, _ -> cancel() }
-            .setOnCancelListener { cancel() }
-            .create()
+        })
         input.setOnEditorActionListener { _, _, _ ->
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+            val text = input.text.toString().trim()
+            if (text.isNotEmpty()) deliver(text)
             true
         }
-        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
-        dialog.show()
+
+        val margin = Ui.dp(this, 12)
+        root.addView(bar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM).apply {
+            setMargins(margin, 0, margin, margin)
+        })
+        bar.translationY = Ui.dpf(this, 80f)
+        bar.animate().translationY(0f).setDuration(520).setInterpolator(Ui.SPRING_SMOOTH).start()
+
         input.requestFocus()
+        input.postDelayed({
+            getSystemService(InputMethodManager::class.java)?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
+        }, 150)
     }
 
     private fun deliver(text: String) {

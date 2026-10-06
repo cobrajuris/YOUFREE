@@ -14,6 +14,20 @@ Uma "ilha" presa na **borda da tela** de qualquer Android 8+, que também é sua
   - **Aviso de compromisso** 10 minutos antes de cada evento (também falado).
   - **Assistente:** o que você falou e a resposta.
 
+## Design
+
+Inspirado no modo escuro da Apple:
+- Preto profundo com um fio de luz na borda, cantos contínuos e tipografia **Inter**
+  (a fonte aberta mais parecida com o SF Pro), com números tabulares no relógio.
+- Paleta de cores do sistema do iOS (azul, verde, laranja, vermelho...).
+- **Central de Controle**: botões redondos de Wi-Fi, Bluetooth, Lanterna e Vibrar, e barras
+  grossas de brilho e volume que se enchem de branco, como no iPhone.
+- **Orbe animado** da assistente (estilo Siri), que reage à sua voz e gira enquanto pensa.
+- Animações com **mola**, botões que "afundam" ao toque e vibração leve.
+- Tela de configuração no estilo dos **Ajustes do iPhone**, com interruptores do iOS.
+
+Fonte Inter: SIL Open Font License (`INTER_FONT_LICENSE.txt`).
+
 ## O que a assistente faz
 
 | Diga | O que acontece |
@@ -80,6 +94,7 @@ O workflow `.github/workflows/ilha-assistente-apk.yml` compila e publica o APK a
 | `Assistant.kt` | Comandos locais, voz (TTS) e envio para o Claude |
 | `ClaudeClient.kt` | API do Claude (SDK `anthropic-java`) com busca na internet |
 | `NotificationWatcher.kt` | Mensagens e controle de música |
-| `VoiceActivity.kt` | Escuta a voz / caixa de texto |
+| `VoiceActivity.kt` | Escuta a voz / barra de digitar |
+| `Ui.kt` / `Components.kt` | Sistema de design: cores, fontes, molas, barras, botões, orbe, interruptor |
 | `MainActivity.kt` | Tela de configuração |
 | `BootReceiver.kt` | Religa a ilha ao reiniciar |
